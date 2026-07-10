@@ -11,9 +11,9 @@ import FAQContact from './pages/FAQContact';
 import SmartCityOS from './pages/SmartCityOS';
 import EcoBot from './components/EcoBot';
 import CommandPalette from './components/CommandPalette';
-import { SmartBin, CivicReport, WorkerTask, UserProfile } from './types';
-import { Bell, ShieldAlert, CheckCircle2, Award, Info, X, MapPin } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { SmartBin, CivicReport, WorkerTask, UserProfile, CitizenTab, WorkerTab, AdminTab } from './types';
+import { Bell, ShieldAlert, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SupabaseService } from './supabaseService';
 import { getSupabase, isSupabaseActive } from './supabaseClient';
 import SetupErrorPage from './components/SetupErrorPage';
@@ -26,9 +26,9 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
 
   // Active tab syncing across different viewports
-  const [citizenTab, setCitizenTab] = useState<'home' | 'scanner' | 'map' | 'complaints' | 'bulk' | 'recycling' | 'rewards'>('home');
-  const [workerTab, setWorkerTab] = useState<'dashboard' | 'tasks' | 'qr-scan' | 'route'>('dashboard');
-  const [adminTab, setAdminTab] = useState<'dashboard' | 'dispatch' | 'bins' | 'fleet' | 'workforce' | 'rbac' | 'analytics' | 'heatmap' | 'health' | 'enterprise'>('dashboard');
+  const [citizenTab, setCitizenTab] = useState<CitizenTab>('home');
+  const [workerTab, setWorkerTab] = useState<WorkerTab>('dashboard');
+  const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
 
   // Sidebar responsive collapse controls
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -45,21 +45,19 @@ export default function App() {
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [authReady, setAuthReady] = useState<boolean>(false); // New state to track auth readiness
 
   // Establish Supabase Session listener and Auth state sync
   useEffect(() => {
     const supabase = getSupabase();
     if (supabase) {
-      console.log('[SESSION STATUS] Initializing Supabase session check...');
       // 1. Initial Session Check
       supabase.auth.getSession().then(({ data: { session } }) => {
+        console.log('Initial session check complete. Session:', session); // Debugging log
         if (session && session.user) {
-          console.log('[SESSION STATUS] Active user session found on application load:', session.user.id);
           setIsLoggedIn(true);
-          console.log('[PROFILE FETCH] Querying profile for loaded session user:', session.user.id);
           SupabaseService.getProfile(session.user.id).then(profile => {
             if (profile) {
-              console.log('[PROFILE FETCHED] Successfully restored user profile on boot:', profile);
               setUser(profile);
             } else {
               const fallback = {
@@ -69,28 +67,33 @@ export default function App() {
                 points: 100,
                 avatarUrl: ''
               };
-              console.log('[PROFILE CREATED] Profile not found in database, created client-side fallback:', fallback);
               setUser(fallback);
             }
           }).catch(err => {
             console.error('[PROFILE FETCH FAILED] Error fetching session profile on boot:', err);
           });
-        } else {
-          console.log('[SESSION STATUS] No active session found on application load. Running as Guest/Local Sandbox mode.');
         }
+        setAuthReady(true); // Signal that auth check is done
       });
 
       // 2. Auth State Change Listener
-      console.log('[AUTH STATE CHANGED] Registering state change listener...');
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(`[AUTH STATE CHANGED] Event: ${event}, User ID: ${session?.user?.id || 'none'}`);
         if (session && session.user) {
           setIsLoggedIn(true);
           try {
-            console.log('[PROFILE FETCH] Fetching profile on auth state change event:', event);
-            const profile = await SupabaseService.getProfile(session.user.id);
+            let profile: UserProfile | null = null;
+            // The DB trigger might have a slight delay. Poll for the profile on SIGNED_IN.
+            if (event === 'SIGNED_IN') {
+              for (let i = 0; i < 5; i++) {
+                profile = await SupabaseService.getProfile(session.user.id);
+                if (profile) break;
+                await new Promise(res => setTimeout(res, 300));
+              }
+            } else {
+              profile = await SupabaseService.getProfile(session.user.id);
+            }
+
             if (profile) {
-              console.log('[PROFILE FETCHED] Loaded profile successfully:', profile);
               setUser(profile);
             } else {
               const fallback = {
@@ -100,14 +103,12 @@ export default function App() {
                 points: 100,
                 avatarUrl: ''
               };
-              console.log('[PROFILE CREATED] Triggering user fallback profile creation on client-side:', fallback);
               setUser(fallback);
             }
           } catch (err) {
             console.error('[PROFILE FETCH FAILED] Error fetching profile on auth change:', err);
           }
         } else {
-          console.log('[SESSION STATUS] Session is empty or cleared. Logging out.');
           setIsLoggedIn(false);
           // Revert to local sandbox guest profile when logged out
           setUser({
@@ -121,9 +122,10 @@ export default function App() {
       });
 
       return () => {
-        console.log('[AUTH STATE CHANGED] Unsubscribing auth state listener.');
         subscription.unsubscribe();
       };
+    } else {
+      setAuthReady(true); // If no supabase, auth is "ready" for local mode
     }
   }, []);
 
@@ -131,10 +133,8 @@ export default function App() {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        console.log('[AUTH START] Initiating cloud signOut...');
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
-        console.log('[LOGOUT SUCCESS] Cloud database session terminated successfully.');
         addNotification({
           title: 'Signed Out Successfully',
           desc: 'Your Cloud DB session has been terminated.',
@@ -150,7 +150,6 @@ export default function App() {
       }
     } else {
       // Local simulated mode logout
-      console.log('[LOGOUT SUCCESS] Local sandbox guest profile reset.');
       setIsLoggedIn(false);
       setUser({
         email: 'suhelias786@gmail.com',
@@ -178,16 +177,6 @@ export default function App() {
   const [reports, setReports] = useState<CivicReport[]>([]);
   const [tasks, setTasks] = useState<WorkerTask[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>({
-    totalBins: 7,
-    criticalBins: 2,
-    totalReports: 2,
-    pendingReports: 1,
-    activeTasks: 2,
-    completedTasks: 0,
-    totalCo2Saved: 12.4,
-    treeEquivalent: 0
-  });
 
   // Telemetry notifications
   const [notifications, setNotifications] = useState<{ id: string; title: string; desc: string; type: 'info' | 'warn' | 'success'; time: string }[]>([
@@ -197,8 +186,43 @@ export default function App() {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [schemaMissing, setSchemaMissing] = useState(false);
 
+  // Dynamically derived statistics from the core data state
+  const stats = React.useMemo(() => {
+    const totalBins = bins.length;
+    const criticalBins = bins.filter(b => b.fillLevel >= 85).length;
+    const totalReports = reports.length;
+    const pendingReports = reports.filter(r => r.status === 'pending').length;
+    const activeTasks = tasks.filter(t => t.status !== 'completed').length;
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    // These would be calculated with a more complex model in a real scenario
+    const totalCo2Saved = (completedTasks * 0.5) + (totalReports * 0.1);
+    const treeEquivalent = Math.floor(totalCo2Saved / 50);
+
+    return { totalBins, criticalBins, totalReports, pendingReports, activeTasks, completedTasks, totalCo2Saved, treeEquivalent };
+  }, [bins, reports, tasks]);
+
   // Synchronize database endpoints periodically
   const refetchData = async () => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
+      console.log("========== AUTH DEBUG ==========");
+      console.log("Session:", session);
+      console.log("User:", session?.user);
+      console.log("Error:", error);
+      console.log("================================");
+
+      if (session) {
+        console.log(`Authenticated as ${session.user.email}`);
+      } else {
+        console.log("No authenticated session found.");
+      }
+    }
+
     try {
       const [binsData, reportsData, tasksData, vehiclesData] = await Promise.all([
         SupabaseService.getSmartBins(),
@@ -224,17 +248,48 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!authReady) return; // <-- Guard clause: Do not fetch data until auth is ready.
+
+    console.log('Auth is ready, proceeding with initial data fetch.'); // Debugging log
     refetchData();
 
     // Establish Supabase Realtime subscriptions if active
     const supabase = getSupabase();
     if (supabase) {
-      console.log('Registering EcoTrack AI Realtime Supabase Channel...');
       const channel = supabase.channel('realtime_civic_telemetry')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'smart_bins' }, () => { refetchData(); })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { refetchData(); })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'worker_tasks' }, () => { refetchData(); })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => { refetchData(); })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'smart_bins' }, (payload) => {
+          setBins(currentBins => [...currentBins, payload.new as SmartBin]);
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'smart_bins' }, (payload) => {
+          setBins(currentBins => currentBins.map(bin => bin.id === payload.new.id ? payload.new as SmartBin : bin));
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'smart_bins' }, (payload) => {
+          setBins(currentBins => currentBins.filter(bin => bin.id !== payload.old.id));
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, (payload) => {
+          setReports(currentReports => [payload.new as CivicReport, ...currentReports]);
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reports' }, (payload) => {
+          setReports(currentReports => currentReports.map(report => report.id === payload.new.id ? payload.new as CivicReport : report));
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, (payload) => {
+          setReports(currentReports => currentReports.filter(report => report.id !== payload.old.id));
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'worker_tasks' }, (payload) => {
+          setTasks(currentTasks => [payload.new as WorkerTask, ...currentTasks]);
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'worker_tasks' }, (payload) => {
+          setTasks(currentTasks => currentTasks.map(task => task.id === payload.new.id ? payload.new as WorkerTask : task));
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'worker_tasks' }, (payload) => {
+          setTasks(currentTasks => currentTasks.filter(task => task.id !== payload.old.id));
+        })
+        // Note: A full implementation would handle all tables and events.
+        // Using a generic refetch for simplicity is okay for demos but not for production performance.
+        // .on('postgres_changes', { event: '*', schema: 'public', table: 'smart_bins' }, () => { refetchData(); })
+        // .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { refetchData(); })
+        // .on('postgres_changes', { event: '*', schema: 'public', table: 'worker_tasks' }, () => { refetchData(); })
+        // .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => { refetchData(); })
         .subscribe();
 
       return () => {
@@ -247,7 +302,7 @@ export default function App() {
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, []);
+  }, [authReady]); // <-- Re-run this effect when authReady changes
 
   // Sync dark class on document root
   useEffect(() => {
@@ -277,7 +332,6 @@ export default function App() {
   const handleLoadDemoMode = async () => {
     try {
       await SupabaseService.loadDemoMode();
-      await refetchData();
       addNotification({
         title: 'Enterprise Demo Loaded',
         desc: 'Seeded +10K profiles, 13 smart bins, and 4 dispatch incidents across city bounds.',
@@ -302,7 +356,6 @@ export default function App() {
   const handleAddReport = async (reportData: Partial<CivicReport>) => {
     try {
       await SupabaseService.addReport(reportData);
-      await refetchData();
       handleEarnPoints(25); // Give reward for civic cleanup reports!
       addNotification({
         title: 'Civic Report Registered',
@@ -317,7 +370,6 @@ export default function App() {
   const handleDispatchReport = async (reportId: string, workerId: string, priority: 'low' | 'medium' | 'high') => {
     try {
       await SupabaseService.dispatchReport(reportId, workerId, priority);
-      await refetchData();
       addNotification({
         title: 'Sanitation Crew Dispatched',
         desc: `Task for report ${reportId} assigned to team with ${priority} priority.`,
@@ -331,7 +383,6 @@ export default function App() {
   const handleDismissReport = async (reportId: string) => {
     try {
       await SupabaseService.dismissReport(reportId);
-      await refetchData();
       addNotification({
         title: 'Incident Report Dismissed',
         desc: `Report ${reportId} dismissed by supervisor.`,
@@ -345,7 +396,6 @@ export default function App() {
   const handleAddBin = async (binData: any) => {
     try {
       await SupabaseService.addBin(binData);
-      await refetchData();
       addNotification({
         title: 'Smart Bin Provisioned',
         desc: `IoT Sensor unit "${binData.name}" calibrated and online in real-time.`,
@@ -359,7 +409,6 @@ export default function App() {
   const handleDeleteBin = async (binId: string) => {
     try {
       await SupabaseService.deleteBin(binId);
-      await refetchData();
       addNotification({
         title: 'Smart Bin Decommissioned',
         desc: `IoT Sensor unit ${binId} successfully deleted from grid records.`,
@@ -373,7 +422,6 @@ export default function App() {
   const handleCompleteTask = async (taskId: string) => {
     try {
       await SupabaseService.completeTask(taskId);
-      await refetchData();
       addNotification({
         title: 'Collection Stop Completed',
         desc: `Task cleared and smart bin levels updated to 0% in real-time.`,
@@ -417,7 +465,7 @@ export default function App() {
 
   if (isSupabaseActive() && schemaMissing) {
     return (
-      <SetupErrorPage 
+      <SetupErrorPage
         onRetry={async () => {
           (window as any).supabaseSchemaMissing = false;
           setSchemaMissing(false);
@@ -493,7 +541,7 @@ export default function App() {
         {/* Floating telemetry Notifications Center Modal */}
         <AnimatePresence>
           {showNotifMenu && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -10 }}
@@ -503,7 +551,7 @@ export default function App() {
                 <span className="text-xs font-bold font-mono tracking-wider text-slate-400 uppercase flex items-center">
                   <Bell className="h-4 w-4 mr-1 text-emerald-500 animate-bounce" /> INCIDENT RADAR
                 </span>
-                <button 
+                <button
                   onClick={() => setShowNotifMenu(false)}
                   className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
                 >
@@ -545,7 +593,7 @@ export default function App() {
               className="w-full h-full"
             >
               {currentPage === 'home' && (
-                <LandingPage 
+                <LandingPage
                   onLaunchPortal={() => setCurrentPage('dashboard')}
                   onNavigate={navigateToFAQ}
                 />
@@ -577,7 +625,7 @@ export default function App() {
 
                   {/* Render appropriate dashboards dynamically */}
                   {user.role === 'citizen' && (
-                    <CitizenPortal 
+                    <CitizenPortal
                       user={user} 
                       bins={bins} 
                       reports={reports}
@@ -589,7 +637,7 @@ export default function App() {
                   )}
 
                   {user.role === 'worker' && (
-                    <WorkerPortal 
+                    <WorkerPortal
                       tasks={tasks}
                       onCompleteTask={handleCompleteTask}
                       bins={bins}
@@ -599,7 +647,7 @@ export default function App() {
                   )}
 
                   {(user.role === 'supervisor' || user.role === 'admin' || user.role === 'superadmin') && (
-                    <AdminPortal 
+                    <AdminPortal
                       bins={bins}
                       reports={reports}
                       tasks={tasks}
@@ -635,7 +683,7 @@ export default function App() {
       <EcoBot user={user} />
 
       {/* Command Palette Keyboard Shortcut Center */}
-      <CommandPalette 
+      <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onNavigate={(page, role) => {
@@ -649,7 +697,7 @@ export default function App() {
       />
 
       {/* Cloud DB Authentication Modal */}
-      <AuthModal 
+      <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={handleAuthSuccess}

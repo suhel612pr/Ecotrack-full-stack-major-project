@@ -70,6 +70,15 @@ export default function SystemHealth() {
         </button>
       </div>
 
+      {/* Disclaimer Banner */}
+      <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex items-start space-x-3 text-xs leading-relaxed text-amber-300">
+        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-bold">Demonstration Data</p>
+          <p className="mt-1 text-slate-400">The metrics displayed on this page (CPU, Latency, Service Status) are for demonstration purposes only and do not reflect live server performance. They are generated locally to showcase the UI's capabilities.</p>
+        </div>
+      </div>
+
       {/* Grid: Uptime, latency, memory, CPU bento widgets */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         

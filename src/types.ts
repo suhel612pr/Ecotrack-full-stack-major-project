@@ -1,5 +1,32 @@
 export type WasteCategory = 'recyclable' | 'organic' | 'landfill' | 'hazardous';
 
+export type CitizenTab =
+  | 'home'
+  | 'scanner'
+  | 'map'
+  | 'complaints'
+  | 'bulk'
+  | 'recycling'
+  | 'rewards'
+  | 'journey'
+  | 'achievements'
+  | 'community'
+  | 'notifications';
+
+export type WorkerTab = 'dashboard' | 'tasks' | 'qr-scan' | 'route';
+
+export type AdminTab =
+  | 'dashboard'
+  | 'dispatch'
+  | 'bins'
+  | 'fleet'
+  | 'workforce'
+  | 'rbac'
+  | 'analytics'
+  | 'heatmap'
+  | 'health'
+  | 'enterprise';
+
 export interface SmartBin {
   id: string;
   name: string;

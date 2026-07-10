@@ -5,7 +5,7 @@ import {
   Settings, ChevronLeft, ChevronRight, Menu, X, ShieldAlert,
   HelpCircle, Leaf, ArrowRight, ShieldCheck
 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { UserProfile, CitizenTab, WorkerTab, AdminTab } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface SidebarProps {
@@ -13,12 +13,12 @@ interface SidebarProps {
   onRoleChange: (role: UserProfile['role']) => void;
   currentPage: string;
   setCurrentPage: (page: string) => void;
-  citizenTab: string;
-  setCitizenTab: (tab: string) => void;
-  workerTab: string;
-  setWorkerTab: (tab: string) => void;
-  adminTab: string;
-  setAdminTab: (tab: string) => void;
+  citizenTab: CitizenTab;
+  setCitizenTab: (tab: CitizenTab) => void;
+  workerTab: WorkerTab;
+  setWorkerTab: (tab: WorkerTab) => void;
+  adminTab: AdminTab;
+  setAdminTab: (tab: AdminTab) => void;
   notificationsCount: number;
   onOpenNotifications: () => void;
   onOpenFAQ: () => void;

@@ -132,7 +132,7 @@ export default function SetupErrorPage({ onRetry }: SetupErrorPageProps) {
                   The application is currently waiting for the following tables to be created in the <code>public</code> schema:
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-                  {['profiles', 'smart_bins', 'reports', 'worker_tasks', 'vehicles'].map(t => (
+                  {['profiles', 'smart_bins', 'reports', 'worker_tasks', 'vehicles', 'user_scans'].map(t => (
                     <span key={t} className="px-2.5 py-1 bg-slate-900 border border-slate-800/80 rounded-lg text-[10px] font-mono text-slate-400 text-center">
                       • {t}
                     </span>

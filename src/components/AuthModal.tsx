@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { Mail, Lock, User, X, Check, ArrowRight, ShieldCheck, Sparkles, Cloud, WifiOff } from 'lucide-react';
 import { getSupabase, isSupabaseActive } from '../supabaseClient';
 import { SupabaseService } from '../supabaseService';
@@ -24,14 +24,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("========== AUTH DEBUG ==========");
+    console.log("handleAuth() called");
+    console.log("Mode:", isSignUp ? "Sign Up" : "Sign In");
+    console.log("Email:", email);
+
     setError(null);
     setSuccess(null);
     setLoading(true);
 
     const supabase = getSupabase();
+    const active = isSupabaseActive();
+    console.log("Supabase active:", active);
+    console.log("Supabase client exists:", !!supabase);
 
-    if (!isSupabaseActive() || !supabase) {
-      // Local Sandbox Fallback Mode
+    if (!active || !supabase) {
       await new Promise(resolve => setTimeout(resolve, 800));
       const simulatedProfile: UserProfile = {
         email: email || 'suhelias786@gmail.com',
@@ -52,8 +59,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
     try {
       if (isSignUp) {
-        console.log('[AUTH START] Signup flow initiated.');
-        console.log('[SIGNUP REQUEST] Registering email:', email);
+        console.log("Calling supabase.auth.signUp()");
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -63,13 +69,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
             }
           }
         });
+        console.log("SignUp data:", data);
+        console.log("SignUp error:", signUpError);
 
         if (signUpError) {
-          console.error('[SIGNUP FAILED] Error:', signUpError);
           throw signUpError;
         }
-
-        console.log('[SIGNUP RESPONSE] Signup call completed successfully. User ID:', data.user?.id, 'Session exists:', !!data.session);
 
         if (data.user) {
           const newProfile: UserProfile = {
@@ -82,24 +87,23 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
           // If there is an active session (auto-confirm is ON)
           if (data.session) {
-            console.log('[SESSION STATUS] Active session detected on signup.');
-            console.log('[PROFILE FETCH] Querying newly created profile for user:', data.user.id);
             let profile: UserProfile | null = null;
             try {
-              profile = await SupabaseService.getProfile(data.user.id);
-              if (profile) {
-                console.log('[PROFILE FETCHED] Successfully obtained profile from trigger:', profile);
+              // The DB trigger might have a slight delay. Poll for the profile.
+              for (let i = 0; i < 5; i++) {
+                profile = await SupabaseService.getProfile(data.user.id);
+                if (profile) break;
+                await new Promise(res => setTimeout(res, 300));
               }
+              profile = await SupabaseService.getProfile(data.user.id);
             } catch (profileErr) {
-              console.warn('[PROFILE FETCH] Profile fetch failed immediately after signup (trigger might be executing/replicating):', profileErr);
+              // The profile might not be available immediately due to replication delay.
             }
 
             const activeProfile = profile || newProfile;
-            console.log('[PROFILE CREATED] Logged in with profile:', activeProfile);
             onAuthSuccess(activeProfile);
             setSuccess('Signup successful! Welcome to EcoTrack.');
           } else {
-            console.log('[SESSION STATUS] Session is null (email verification might be enabled).');
             setSuccess('Registration successful! Please check your inbox for a verification email or try signing in if auto-confirmed.');
           }
 
@@ -109,34 +113,31 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           }, 3000);
         }
       } else {
-        console.log('[AUTH START] Login flow initiated.');
+        console.log("Calling supabase.auth.signInWithPassword()");
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
         });
+        console.log("SignIn data:", data);
+        console.log("SignIn error:", signInError);
 
         if (signInError) {
-          console.error('[LOGIN FAILED] Error during sign-in:', signInError);
           throw signInError;
         }
 
         if (data.user) {
-          console.log('[LOGIN SUCCESS] Credentials accepted. User ID:', data.user.id);
-          console.log('[PROFILE FETCH] Fetching user profile...');
-          
           let profile: UserProfile | null = null;
           try {
             profile = await SupabaseService.getProfile(data.user.id);
-            if (profile) {
-              console.log('[PROFILE FETCHED] Profile successfully loaded:', profile);
-            }
           } catch (profileErr) {
-            console.error('[PROFILE FETCH FAILED] Error fetching profile:', profileErr);
+            // Error is thrown by the service if the profile is not found.
+            // This is expected if the trigger failed or is delayed.
           }
 
           if (profile) {
             onAuthSuccess(profile);
           } else {
+            // Fallback to user metadata if profile is not found.
             const fallbackProfile: UserProfile = {
               email: data.user.email || '',
               role: 'citizen',
@@ -144,7 +145,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               points: 100,
               avatarUrl: ''
             };
-            console.log('[PROFILE CREATED] Using user metadata fallback profile:', fallbackProfile);
             onAuthSuccess(fallbackProfile);
           }
           setSuccess('Authenticated successfully via Supabase!');
@@ -155,6 +155,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         }
       }
     } catch (err: any) {
+      console.error("Authentication error:", err);
       setError(err.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);

@@ -1,5 +1,5 @@
 import { getSupabase, isSupabaseActive } from './supabaseClient';
-import { SmartBin, CivicReport, WorkerTask, UserProfile, WasteAnalysisResponse, WasteCategory, AIWasteScan } from './types';
+import { SmartBin, CivicReport, WorkerTask, UserProfile, WasteAnalysisResponse, WasteCategory, AIWasteScan, Vehicle } from './types';
 
 // Default mock datasets for offline/local simulation
 const DEFAULT_BINS: SmartBin[] = [
@@ -81,9 +81,9 @@ const DEFAULT_TASKS: WorkerTask[] = [
   }
 ];
 
-const DEFAULT_VEHICLES = [
-  { id: 'v-14', name: 'EV-TRUCK-14', model: 'MACK LR Electric', type: 'EV-Truck', batteryLevel: 92, lat: 37.7780, lng: -122.4120, status: 'Available' },
-  { id: 'v-11', name: 'EV-TRUCK-11', model: 'BYD 8R Heavy Duty', type: 'Heavy-Duty', batteryLevel: 78, lat: 37.7830, lng: -122.4090, status: 'Collecting' }
+const DEFAULT_VEHICLES: Vehicle[] = [
+  { id: 'v-14', name: 'EV-TRUCK-14', model: 'MACK LR Electric', type: 'EV-Truck', battery_level: 92, lat: 37.7780, lng: -122.4120, status: 'Available' },
+  { id: 'v-11', name: 'EV-TRUCK-11', model: 'BYD 8R Heavy Duty', type: 'Heavy-Duty', battery_level: 78, lat: 37.7830, lng: -122.4090, status: 'Collecting' }
 ];
 
 // LocalStorage helpers to simulate database persistence in offline mode
@@ -174,7 +174,7 @@ export const SupabaseService = {
       if (data) {
         return {
           email: data.email || '',
-          role: data.role as any || 'citizen',
+          role: data.role as 'citizen' | 'worker' | 'supervisor' | 'admin' || 'citizen',
           name: data.name || '',
           points: data.points || 0,
           avatarUrl: data.avatar_url || ''
@@ -209,7 +209,7 @@ export const SupabaseService = {
     const supabase = getSupabase();
     if (supabase) {
       const { data, error } = await supabase
-        .from('smart_bins')
+        .from('smart_bins') // This table name must match your DB schema
         .select('*')
         .order('id', { ascending: true });
       if (error) {
@@ -222,30 +222,14 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase smart_bins query returned no data');
       }
-      return data.map(b => ({
-        id: b.id,
-        name: b.name,
-        address: b.address,
-        category: b.category as WasteCategory,
-        fillLevel: parseFloat(b.fill_level),
-        temperature: parseFloat(b.temperature),
-        batteryLevel: b.battery_level,
-        lat: parseFloat(b.lat),
-        lng: parseFloat(b.lng),
-        lastEmptied: b.last_emptied,
-        signalStrength: b.signal_strength,
-        sensorHealth: b.sensor_health,
-        fireAlert: b.fire_alert,
-        maintenanceStatus: b.maintenance_status
-      }));
+      return data as SmartBin[];
     }
     return loadLocal('bins', DEFAULT_BINS);
   },
 
   async addBin(bin: Partial<SmartBin>): Promise<SmartBin> {
-    const id = `bin-${Math.floor(100 + Math.random() * 900)}`;
     const newBin: SmartBin = {
-      id,
+      id: `local-${Date.now()}`, // Temporary ID for local state, DB will generate real one
       name: bin.name || 'New Smart Bin',
       address: bin.address || 'Civic bounds',
       category: bin.category || 'recyclable',
@@ -264,20 +248,19 @@ export const SupabaseService = {
     const supabase = getSupabase();
     if (supabase) {
       const { error } = await supabase.from('smart_bins').insert({
-        id: newBin.id,
         name: newBin.name,
         address: newBin.address,
         category: newBin.category,
-        fill_level: newBin.fillLevel,
+        fill_level: newBin.fillLevel, // Ensure snake_case for DB columns
         temperature: newBin.temperature,
-        battery_level: newBin.batteryLevel,
+        battery_level: newBin.batteryLevel, // Ensure snake_case for DB columns
         lat: newBin.lat,
         lng: newBin.lng,
-        last_emptied: newBin.lastEmptied,
-        signal_strength: newBin.signalStrength,
-        sensor_health: newBin.sensorHealth,
-        fire_alert: newBin.fireAlert,
-        maintenance_status: newBin.maintenanceStatus
+        last_emptied: newBin.lastEmptied, // Ensure snake_case for DB columns
+        signal_strength: newBin.signalStrength, // Ensure snake_case for DB columns
+        sensor_health: newBin.sensorHealth, // Ensure snake_case for DB columns
+        fire_alert: newBin.fireAlert, // Ensure snake_case for DB columns
+        maintenance_status: newBin.maintenanceStatus // Ensure snake_case for DB columns
       });
       if (error) {
         throw new Error(`Supabase bin insert failed: ${error.message}`);
@@ -321,29 +304,15 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase reports query returned no data');
       }
-      return data.map(r => ({
-        id: r.id,
-        citizenName: r.citizen_name,
-        title: r.title,
-        description: r.description,
-        category: r.category as WasteCategory,
-        location: r.location,
-        lat: parseFloat(r.lat),
-        lng: parseFloat(r.lng),
-        status: r.status,
-        imageUrl: r.image_url,
-        greenPoints: r.green_points,
-        assignedWorkerId: r.assigned_worker_id,
-        createdAt: r.created_at
-      }));
+      return data as CivicReport[];
     }
     return loadLocal('reports', DEFAULT_REPORTS);
   },
 
   async addReport(report: Partial<CivicReport>): Promise<CivicReport> {
     const newReport: CivicReport = {
-      id: `rep-${Math.floor(100 + Math.random() * 900)}`,
       citizenName: report.citizenName || 'Anonymous Citizen',
+      id: `local-${Date.now()}`, // Temporary ID for local state, DB will generate real one
       title: report.title || 'Civic Report',
       description: report.description || '',
       category: report.category || 'recyclable',
@@ -359,8 +328,7 @@ export const SupabaseService = {
     const supabase = getSupabase();
     if (supabase) {
       const { error } = await supabase.from('reports').insert({
-        id: newReport.id,
-        citizen_name: newReport.citizenName,
+        citizen_name: newReport.citizenName, // snake_case
         title: newReport.title,
         description: newReport.description,
         category: newReport.category,
@@ -368,9 +336,9 @@ export const SupabaseService = {
         lat: newReport.lat,
         lng: newReport.lng,
         status: newReport.status,
-        image_url: newReport.imageUrl,
-        green_points: newReport.greenPoints,
-        created_at: newReport.createdAt
+        image_url: newReport.imageUrl, // snake_case
+        green_points: newReport.greenPoints, // snake_case
+        created_at: newReport.createdAt // snake_case
       });
       if (error) {
         throw new Error(`Supabase report insert failed: ${error.message}`);
@@ -412,7 +380,8 @@ export const SupabaseService = {
       }
       const { error: insertError } = await supabase.from('worker_tasks').insert({
         id: newTask.id,
-        report_id: newTask.reportId,
+        report_id: newTask.reportId, // snake_case
+        assigned_worker_id: workerId,
         title: newTask.title,
         description: newTask.description,
         location: newTask.location,
@@ -466,19 +435,7 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase worker tasks query returned no data');
       }
-      return data.map(t => ({
-        id: t.id,
-        binId: t.bin_id,
-        reportId: t.report_id,
-        title: t.title,
-        description: t.description,
-        location: t.location,
-        lat: parseFloat(t.lat),
-        lng: parseFloat(t.lng),
-        priority: t.priority,
-        status: t.status,
-        type: t.type
-      }));
+      return data as WorkerTask[];
     }
     return loadLocal('tasks', DEFAULT_TASKS);
   },
@@ -564,16 +521,7 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase vehicles query returned no data');
       }
-      return data.map(v => ({
-        id: v.id,
-        name: v.name,
-        model: v.model,
-        type: v.type,
-        batteryLevel: parseFloat(v.battery_level),
-        lat: parseFloat(v.lat),
-        lng: parseFloat(v.lng),
-        status: v.status
-      }));
+      return data as Vehicle[];
     }
     return loadLocal('vehicles', DEFAULT_VEHICLES);
   },
@@ -589,9 +537,9 @@ export const SupabaseService = {
       const vehicles = loadLocal('vehicles', DEFAULT_VEHICLES);
       const vehicle = vehicles.find(v => v.id === id);
       if (vehicle) {
-        vehicle.lat = lat;
-        vehicle.lng = lng;
-        vehicle.batteryLevel = batteryLevel;
+        vehicle.lat = lat as any;
+        vehicle.lng = lng as any;
+        vehicle.battery_level = batteryLevel;
         vehicle.status = status as any;
       }
       saveLocal('vehicles', vehicles);
@@ -620,16 +568,16 @@ export const SupabaseService = {
         name: b.name,
         address: b.address,
         category: b.category,
-        fill_level: b.fillLevel,
+        fill_level: b.fillLevel, // snake_case
         temperature: b.temperature,
-        battery_level: b.batteryLevel,
+        battery_level: b.batteryLevel, // snake_case
         lat: b.lat,
         lng: b.lng,
-        last_emptied: b.lastEmptied,
-        signal_strength: b.signalStrength,
-        sensor_health: b.sensorHealth,
-        fire_alert: b.fireAlert,
-        maintenance_status: b.maintenanceStatus
+        last_emptied: b.lastEmptied, // snake_case
+        signal_strength: b.signalStrength, // snake_case
+        sensor_health: b.sensorHealth, // snake_case
+        fire_alert: b.fireAlert, // snake_case
+        maintenance_status: b.maintenanceStatus // snake_case
       }));
 
       const reportInserts = DEFAULT_REPORTS.map(r => ({
@@ -665,7 +613,7 @@ export const SupabaseService = {
         name: v.name,
         model: v.model,
         type: v.type,
-        battery_level: v.batteryLevel,
+        battery_level: v.battery_level,
         lat: v.lat,
         lng: v.lng,
         status: v.status
@@ -845,50 +793,6 @@ export const SupabaseService = {
     };
   },
 
-  async createSmartBin(bin: Partial<SmartBin>): Promise<any> {
-    const supabase = getSupabase();
-    if (supabase) {
-      const { data, error } = await supabase.from('smart_bins').insert({
-        id: bin.id || `bin-${Date.now()}`,
-        name: bin.name,
-        address: bin.address || 'District IoT Mapped Segment',
-        category: bin.category || 'recyclable',
-        fill_level: 0,
-        temperature: 20,
-        battery_level: 100,
-        lat: 37.7749 + (Math.random() - 0.5) * 0.02,
-        lng: -122.4194 + (Math.random() - 0.5) * 0.02,
-        signal_strength: 'Excellent',
-        sensor_health: 'healthy',
-        fire_alert: false,
-        maintenance_status: 'none'
-      }).select();
-      if (error) throw error;
-      return data?.[0];
-    } else {
-      const bins = loadLocal('smart_bins', DEFAULT_BINS);
-      const newBin: SmartBin = {
-        id: bin.id || `bin-${Date.now()}`,
-        name: bin.name || 'New Smart Bin',
-        address: bin.address || 'District IoT Mapped Segment',
-        category: (bin.category || 'recyclable') as any,
-        fillLevel: 0,
-        temperature: 20,
-        batteryLevel: 100,
-        lat: 37.7749 + (Math.random() - 0.5) * 0.02,
-        lng: -122.4194 + (Math.random() - 0.5) * 0.02,
-        lastEmptied: new Date().toISOString().substring(0, 16).replace('T', ' '),
-        signalStrength: 'Excellent',
-        sensorHealth: 'healthy',
-        fireAlert: false,
-        maintenanceStatus: 'none'
-      };
-      bins.push(newBin);
-      saveLocal('smart_bins', bins);
-      return newBin;
-    }
-  },
-
   async saveScan(scan: Partial<AIWasteScan>): Promise<AIWasteScan> {
     const newScan: AIWasteScan = {
       id: scan.id || `scan-${Date.now()}`,
@@ -949,7 +853,7 @@ export const SupabaseService = {
           const mapped: AIWasteScan[] = data.map(s => ({
             id: s.id,
             itemName: s.item_name,
-            category: s.category as any,
+            category: s.category as WasteCategory,
             confidence: s.confidence,
             recyclable: s.recyclable,
             greenPoints: s.green_points,

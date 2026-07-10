@@ -1,29 +1,39 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const env = (import.meta as any).env || {};
-const supabaseUrl = env.VITE_SUPABASE_URL;
-const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = String(env.VITE_SUPABASE_URL || '').trim();
+const supabaseAnonKey = String(env.VITE_SUPABASE_ANON_KEY || '').trim();
+
+const hasSupabaseUrl = supabaseUrl.length > 0;
+const hasSupabaseAnonKey = supabaseAnonKey.length > 0;
+const hasSupabaseVars = hasSupabaseUrl && hasSupabaseAnonKey;
+
+console.log('SUPABASE URL', supabaseUrl);
+console.log('SUPABASE ANON KEY PRESENT', hasSupabaseAnonKey);
+console.log('SUPABASE ACTIVE', hasSupabaseVars);
 
 let supabaseClientInstance: SupabaseClient | null = null;
 
-// Only initialize if the keys are valid and not placeholders
-const isRealUrl = supabaseUrl && supabaseUrl !== 'YOUR_SUPABASE_URL' && !supabaseUrl.includes('dummy-sandbox-project');
-const isRealKey = supabaseAnonKey && supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY' && !supabaseAnonKey.includes('dummy-anon-key');
-
-if (isRealUrl && isRealKey) {
+function createSupabaseClient(): SupabaseClient | null {
   try {
-    supabaseClientInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    const client = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
       },
     });
-    console.log('EcoTrack AI DB Layer: Connected to real Supabase/PostgreSQL.');
+    console.log('CLIENT CREATED');
+    return client;
   } catch (err) {
-    console.error('EcoTrack AI DB Layer: Failed to initialize Supabase client:', err);
+    console.error('Failed to create Supabase client using current environment values:', err);
+    return null;
   }
+}
+
+if (hasSupabaseVars) {
+  supabaseClientInstance = createSupabaseClient();
 } else {
-  console.log('EcoTrack AI DB Layer: Supabase keys missing or placeholders. Running in highly resilient Local/Simulation Mode.');
+  console.error('Supabase credentials are missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.');
 }
 
 export function getSupabase(): SupabaseClient | null {
@@ -31,5 +41,5 @@ export function getSupabase(): SupabaseClient | null {
 }
 
 export function isSupabaseActive(): boolean {
-  return supabaseClientInstance !== null;
+  return hasSupabaseVars;
 }
