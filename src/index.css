@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter", "Poppins", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Custom enterprise neutral/zinc color-mapping for high-end look */
+  --color-slate-50: #FAFAFA;
+  --color-slate-100: #F4F4F5;
+  --color-slate-200: #E4E4E7;
+  --color-slate-300: #D4D4D8;
+  --color-slate-400: #A1A1AA;
+  --color-slate-500: #71717A;
+  --color-slate-600: #52525B;
+  --color-slate-700: #3F3F46;
+  --color-slate-800: #27272A;
+  --color-slate-900: #18181B;
+  --color-slate-950: #09090B;
+
+  --color-zinc-50: #FAFAFA;
+  --color-zinc-100: #F4F4F5;
+  --color-zinc-200: #E4E4E7;
+  --color-zinc-300: #D4D4D8;
+  --color-zinc-400: #A1A1AA;
+  --color-zinc-500: #71717A;
+  --color-zinc-600: #52525B;
+  --color-zinc-700: #3F3F46;
+  --color-zinc-800: #27272A;
+  --color-zinc-900: #18181B;
+  --color-zinc-950: #09090B;
+
+  --radius-card: 16px;
+  --radius-button: 12px;
+  --radius-input: 12px;
+  --radius-dialog: 20px;
+}
+
+/* Global Typography Class Adjustments */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  font-weight: 600;
+}
+
+body {
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  background-color: #09090B;
+  color: #FAFAFA;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(17, 17, 19, 0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(39, 39, 42, 0.6);
+}
+
+.dark .glass {
+  background: rgba(17, 17, 19, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(39, 39, 42, 0.8);
+}
+
+/* Hide default scrollbars for elegant UI channels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.2);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.4);
+}
+
+/* Custom premium transitions */
+.transition-all-custom {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+

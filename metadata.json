@@ -1,0 +1,6 @@
+{
+  "name": "EcoTrack AI",
+  "description": "Building Cleaner Cities with Smart Technology. An enterprise civic platform with AI-driven waste classification, live route optimization, smart bin analytics, and portals for citizens, workers, and supervisors.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

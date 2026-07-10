@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  ecotrack-app:
+    environment:
+      - NODE_ENV=production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    volumes:
+      - prod_postgres_backup:/var/lib/postgresql/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  prod_postgres_backup:
