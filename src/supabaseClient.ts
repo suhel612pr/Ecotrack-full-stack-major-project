@@ -8,22 +8,16 @@ const hasSupabaseUrl = supabaseUrl.length > 0;
 const hasSupabaseAnonKey = supabaseAnonKey.length > 0;
 const hasSupabaseVars = hasSupabaseUrl && hasSupabaseAnonKey;
 
-console.log('SUPABASE URL', supabaseUrl);
-console.log('SUPABASE ANON KEY PRESENT', hasSupabaseAnonKey);
-console.log('SUPABASE ACTIVE', hasSupabaseVars);
-
 let supabaseClientInstance: SupabaseClient | null = null;
 
 function createSupabaseClient(): SupabaseClient | null {
   try {
-    const client = createClient(supabaseUrl, supabaseAnonKey, {
+    return createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
       },
     });
-    console.log('CLIENT CREATED');
-    return client;
   } catch (err) {
     console.error('Failed to create Supabase client using current environment values:', err);
     return null;

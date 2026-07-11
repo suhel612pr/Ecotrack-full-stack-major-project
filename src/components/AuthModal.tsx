@@ -24,10 +24,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("========== AUTH DEBUG ==========");
-    console.log("handleAuth() called");
-    console.log("Mode:", isSignUp ? "Sign Up" : "Sign In");
-    console.log("Email:", email);
 
     setError(null);
     setSuccess(null);
@@ -35,8 +31,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
     const supabase = getSupabase();
     const active = isSupabaseActive();
-    console.log("Supabase active:", active);
-    console.log("Supabase client exists:", !!supabase);
 
     if (!active || !supabase) {
       await new Promise(resolve => setTimeout(resolve, 800));
@@ -59,7 +53,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
     try {
       if (isSignUp) {
-        console.log("Calling supabase.auth.signUp()");
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -69,9 +62,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
             }
           }
         });
-        console.log("SignUp data:", data);
-        console.log("SignUp error:", signUpError);
-
         if (signUpError) {
           throw signUpError;
         }
@@ -113,14 +103,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           }, 3000);
         }
       } else {
-        console.log("Calling supabase.auth.signInWithPassword()");
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
         });
-        console.log("SignIn data:", data);
-        console.log("SignIn error:", signInError);
-
         if (signInError) {
           throw signInError;
         }

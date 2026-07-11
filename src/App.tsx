@@ -1,22 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import AuthModal from './components/AuthModal';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Footer from './components/Footer';
-import LandingPage from './pages/LandingPage';
-import CitizenPortal from './pages/CitizenPortal';
-import WorkerPortal from './pages/WorkerPortal';
-import AdminPortal from './pages/AdminPortal';
-import FAQContact from './pages/FAQContact';
-import SmartCityOS from './pages/SmartCityOS';
 import EcoBot from './components/EcoBot';
 import CommandPalette from './components/CommandPalette';
 import { SmartBin, CivicReport, WorkerTask, UserProfile, CitizenTab, WorkerTab, AdminTab } from './types';
-import { Bell, ShieldAlert, X } from 'lucide-react';
+import { Bell, ShieldAlert, X, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SupabaseService } from './supabaseService';
 import { getSupabase, isSupabaseActive } from './supabaseClient';
 import SetupErrorPage from './components/SetupErrorPage';
+
+// Lazy load page components for better performance
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+const CitizenPortal = lazy(() => import('./pages/CitizenPortal'));
+const WorkerPortal = lazy(() => import('./pages/WorkerPortal'));
+const AdminPortal = lazy(() => import('./pages/AdminPortal'));
+const FAQContact = lazy(() => import('./pages/FAQContact'));
+const SmartCityOS = lazy(() => import('./pages/SmartCityOS'));
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('home'); // 'home', 'dashboard', 'about', 'privacy', 'terms'
@@ -35,17 +37,11 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
   // Master User Context - with demo role shifting capabilities
-  const [user, setUser] = useState<UserProfile>({
-    email: 'suhelias786@gmail.com',
-    role: 'citizen', // Default, can be toggled to 'worker', 'supervisor', 'admin' in HUD
-    name: 'Elias Suhel',
-    points: 125,
-    avatarUrl: ''
-  });
-
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
-  const [authReady, setAuthReady] = useState<boolean>(false); // New state to track auth readiness
+  const [authReady, setAuthReady] = useState<boolean>(false);
+
+  const isLoggedIn = !!user;
 
   // Establish Supabase Session listener and Auth state sync
   useEffect(() => {
@@ -53,24 +49,14 @@ export default function App() {
     if (supabase) {
       // 1. Initial Session Check
       supabase.auth.getSession().then(({ data: { session } }) => {
-        console.log('Initial session check complete. Session:', session); // Debugging log
         if (session && session.user) {
-          setIsLoggedIn(true);
           SupabaseService.getProfile(session.user.id).then(profile => {
             if (profile) {
               setUser(profile);
-            } else {
-              const fallback = {
-                email: session.user.email || '',
-                role: 'citizen' as const,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Citizen',
-                points: 100,
-                avatarUrl: ''
-              };
-              setUser(fallback);
             }
           }).catch(err => {
             console.error('[PROFILE FETCH FAILED] Error fetching session profile on boot:', err);
+            setUser(null); // Ensure user is logged out if profile fails
           });
         }
         setAuthReady(true); // Signal that auth check is done
@@ -79,45 +65,21 @@ export default function App() {
       // 2. Auth State Change Listener
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (session && session.user) {
-          setIsLoggedIn(true);
           try {
-            let profile: UserProfile | null = null;
-            // The DB trigger might have a slight delay. Poll for the profile on SIGNED_IN.
-            if (event === 'SIGNED_IN') {
-              for (let i = 0; i < 5; i++) {
-                profile = await SupabaseService.getProfile(session.user.id);
-                if (profile) break;
-                await new Promise(res => setTimeout(res, 300));
-              }
-            } else {
-              profile = await SupabaseService.getProfile(session.user.id);
-            }
-
+            const profile = await SupabaseService.getProfile(session.user.id);
             if (profile) {
               setUser(profile);
-            } else {
-              const fallback = {
-                email: session.user.email || '',
-                role: 'citizen' as const,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Citizen',
-                points: 100,
-                avatarUrl: ''
-              };
-              setUser(fallback);
             }
           } catch (err) {
             console.error('[PROFILE FETCH FAILED] Error fetching profile on auth change:', err);
+            // If profile fetch fails, treat as logged out to prevent inconsistent state
+            setUser(null);
           }
         } else {
-          setIsLoggedIn(false);
-          // Revert to local sandbox guest profile when logged out
-          setUser({
-            email: 'suhelias786@gmail.com',
-            role: 'citizen',
-            name: 'Elias Suhel',
-            points: 125,
-            avatarUrl: ''
-          });
+          // User is logged out
+          setUser(null);
+          // When logging out, redirect to home page
+          setCurrentPage('home');
         }
       });
 
@@ -150,14 +112,7 @@ export default function App() {
       }
     } else {
       // Local simulated mode logout
-      setIsLoggedIn(false);
-      setUser({
-        email: 'suhelias786@gmail.com',
-        role: 'citizen',
-        name: 'Elias Suhel',
-        points: 125,
-        avatarUrl: ''
-      });
+      setUser(null);
       addNotification({
         title: 'Local Session Terminated',
         desc: 'Simulated mode reset.',
@@ -168,7 +123,6 @@ export default function App() {
 
   const handleAuthSuccess = (userProfile: UserProfile) => {
     setUser(userProfile);
-    setIsLoggedIn(true);
     setIsAuthModalOpen(false);
   };
 
@@ -204,24 +158,6 @@ export default function App() {
   // Synchronize database endpoints periodically
   const refetchData = async () => {
     const supabase = getSupabase();
-    if (supabase) {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      console.log("========== AUTH DEBUG ==========");
-      console.log("Session:", session);
-      console.log("User:", session?.user);
-      console.log("Error:", error);
-      console.log("================================");
-
-      if (session) {
-        console.log(`Authenticated as ${session.user.email}`);
-      } else {
-        console.log("No authenticated session found.");
-      }
-    }
 
     try {
       const [binsData, reportsData, tasksData, vehiclesData] = await Promise.all([
@@ -250,7 +186,6 @@ export default function App() {
   useEffect(() => {
     if (!authReady) return; // <-- Guard clause: Do not fetch data until auth is ready.
 
-    console.log('Auth is ready, proceeding with initial data fetch.'); // Debugging log
     refetchData();
 
     // Establish Supabase Realtime subscriptions if active
@@ -342,21 +277,9 @@ export default function App() {
     }
   };
 
-  const handleEarnPoints = (amount: number) => {
-    setUser(prev => ({ ...prev, points: Math.max(0, prev.points + amount) }));
-    if (amount > 0) {
-      addNotification({
-        title: 'Credits Credited',
-        desc: `Verified deposit completed successfully. Accrued +${amount} credits.`,
-        type: 'success'
-      });
-    }
-  };
-
   const handleAddReport = async (reportData: Partial<CivicReport>) => {
     try {
       await SupabaseService.addReport(reportData);
-      handleEarnPoints(25); // Give reward for civic cleanup reports!
       addNotification({
         title: 'Civic Report Registered',
         desc: `Report for "${reportData.title}" dispatched successfully.`,
@@ -440,24 +363,6 @@ export default function App() {
     ]);
   };
 
-  const handleRoleChange = (newRole: UserProfile['role']) => {
-    let mockName = 'Elias Suhel';
-    if (newRole === 'worker') mockName = 'Marcus Vance';
-    if (newRole === 'supervisor' || newRole === 'admin') mockName = 'Director Helen Thorne';
-
-    setUser(prev => ({
-      ...prev,
-      role: newRole,
-      name: mockName
-    }));
-
-    addNotification({
-      title: `Identity Swapped`,
-      desc: `Authorized credentials updated as: ${newRole.toUpperCase()}`,
-      type: 'info'
-    });
-  };
-
   const navigateToFAQ = (view: 'faq' | 'about' | 'privacy' | 'terms') => {
     setFaqInitialView(view);
     setCurrentPage('faq');
@@ -482,10 +387,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-row font-sans transition-colors duration-300">
       
-      {/* 1. Global Navigation Sidebar */}
+      {/* 1. Global Navigation Sidebar (Only if logged in) */}
+      {isLoggedIn && user && (
       <Sidebar
         user={user}
-        onRoleChange={handleRoleChange}
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         citizenTab={citizenTab}
@@ -502,16 +407,16 @@ export default function App() {
         isMobileOpen={isMobileSidebarOpen}
         setIsMobileOpen={setIsMobileSidebarOpen}
       />
+      )}
 
       {/* Main Outer Content Area */}
       <div className={`flex-grow flex flex-col min-w-0 min-h-screen relative transition-all duration-300 ${
-        isSidebarCollapsed ? 'md:pl-16' : 'md:pl-64'
+        isLoggedIn && !isSidebarCollapsed ? 'md:pl-64' : isLoggedIn && isSidebarCollapsed ? 'md:pl-16' : 'pl-0'
       }`}>
         
         {/* 2. Sticky Top Navigation Bar */}
         <TopBar
           user={user}
-          onRoleChange={handleRoleChange}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode(!darkMode)}
           language={language}
@@ -583,7 +488,15 @@ export default function App() {
 
         {/* 3. Main Content Routing Stage */}
         <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-          <AnimatePresence mode="wait">
+          <Suspense fallback={
+            <div className="w-full h-full flex items-center justify-center min-h-[400px]">
+              <div className="flex flex-col items-center space-y-2">
+                <RefreshCw className="h-6 w-6 text-emerald-500 animate-spin" />
+                <span className="text-xs text-slate-400">Loading Workspace...</span>
+              </div>
+            </div>
+          }>
+            <AnimatePresence mode="wait">
             <motion.div
               key={currentPage + (currentPage === 'dashboard' ? user.role : '')}
               initial={{ opacity: 0, y: 15 }}
@@ -599,7 +512,7 @@ export default function App() {
                 />
               )}
 
-              {currentPage === 'dashboard' && (
+              {currentPage === 'dashboard' && isLoggedIn && user && (
                 <div className="space-y-6 text-left">
                   
                   {/* Elegant low-profile heading for active context */}
@@ -628,7 +541,6 @@ export default function App() {
                     <CitizenPortal
                       user={user} 
                       bins={bins} 
-                      reports={reports}
                       onEarnPoints={handleEarnPoints}
                       onAddReport={handleAddReport}
                       activeTab={citizenTab}
@@ -672,6 +584,7 @@ export default function App() {
               {currentPage === 'terms' && <FAQContact initialView="terms" />}
             </motion.div>
           </AnimatePresence>
+          </Suspense>
         </main>
 
         {/* 4. Global Footer */}
@@ -680,7 +593,7 @@ export default function App() {
       </div>
 
       {/* Floating EcoBot AI Assistant */}
-      <EcoBot user={user} />
+      {isLoggedIn && user && <EcoBot user={user} />}
 
       {/* Command Palette Keyboard Shortcut Center */}
       <CommandPalette
@@ -688,7 +601,6 @@ export default function App() {
         onClose={() => setIsCommandPaletteOpen(false)}
         onNavigate={(page, role) => {
           setCurrentPage(page);
-          if (role) handleRoleChange(role as any);
         }}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
         isDarkMode={darkMode}

@@ -253,8 +253,8 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
       try {
         const edgeData = await SupabaseService.classifyWaste(base64Image, null);
         if (edgeData) analysis = edgeData;
-      } catch (err) {
-        console.log('Using robust file-matching simulator (Simulation Mode):', err);
+      } catch {
+        // Fall back to the local simulator when the edge classifier is unavailable.
       }
 
       setResult(analysis);
