@@ -1,20 +1,21 @@
-# 🌿 EcoTrack AI — Smart City Waste & Recycling OS
+# 🌿 EcoTrack AI — Smart City Waste & Recycling OS (v1.0.0)
 
-EcoTrack AI is a full-stack smart city platform for waste management, citizen engagement, and municipal operations. It combines a React + TypeScript frontend with Supabase-backed data services so cities can track smart bins, dispatch field tasks, and monitor recycling behavior through a unified experience.
+> EcoTrack is a next-generation full-stack Smart City platform that transforms municipal waste management. By integrating interactive computer vision AI, real-time IoT sensors, decentralized route dispatch systems, and gamified citizen engagement loops, EcoTrack coordinates citizens, field workers, and municipal operators into a singular, highly cohesive ecological network.
 
 ## ✨ Features
 
-- Multi-role portals for citizens, workers, and administrators
-- Smart bin telemetry and civic report workflows
-- AI-powered waste classification experience with image-based insights
-- Realtime task and notification updates through Supabase
-- Responsive dashboard UI for desktop and mobile devices
+- **Role-Based Portals**: Distinct, real-time operating dashboards for Citizens, Sanitation Workers, and Municipal Administrators.
+- **AI-Powered Waste Classification**: Utilizes Groq for a real-time, AI-powered waste classification experience with image-based analysis.
+- **Smart Bin Telemetry**: Live monitoring of smart bin fill levels, temperature, and status via an interactive GIS map.
+- **Realtime CRUD & Dispatch**: Full create, read, update, and delete operations for all entities, with real-time task assignments for sanitation crews.
+- **Gamified Citizen Engagement**: Citizens earn "Green Credits" and achievements for positive environmental actions, viewable on community leaderboards.
+- **Secure & Scalable Backend**: Built on Supabase, featuring PostgreSQL, Row-Level Security (RLS), and serverless Edge Functions for secure API interactions.
 
 ## 🛠️ Installation
 
 ### Prerequisites
-- Node.js 18+
-- npm 9+
+- Node.js v18+
+- npm
 
 ### Steps
 ```bash
@@ -26,13 +27,17 @@ cp .env.example .env
 
 ## 🔐 Environment Variables
 
-Create a local `.env` file with the following values:
+Create a `.env` file in the root of the project by copying the `.env.example` template.
 
 ```env
-VITE_SUPABASE_URL="https://your-project.supabase.co"
+# Supabase Configuration (Client-safe)
+VITE_SUPABASE_URL="your-supabase-project-url"
 VITE_SUPABASE_ANON_KEY="your-anon-key"
-GROQ_API_KEY="your-groq-api-key"
-RESEND_API_KEY="your-resend-api-key"
+
+# Backend Service Keys (Secrets - DO NOT EXPOSE TO CLIENT)
+# These are set in your Supabase project's Edge Function secrets, not in the .env file for local development.
+GROQ_API_KEY="your-groq-api-key" # For AI Chat & Vision
+RESEND_API_KEY="your-resend-api-key" # For transactional emails
 ```
 
 > Keep `.env` local and never commit it. The repository includes `.env.example` as the safe template.

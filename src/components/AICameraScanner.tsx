@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { WasteAnalysisResponse, AIWasteScan, WasteCategory } from '../types';
 import { SupabaseService } from '../supabaseService';
+import { UserProfile } from '../types';
 
 interface AICameraScannerProps {
   onEarnPoints: (points: number) => void;
@@ -89,7 +90,10 @@ const SAMPLE_PRESETS = [
   { id: 'broken_glass', name: 'Broken Glass', icon: '🍷', label: 'Landfill' }
 ];
 
-export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) {
+export default function AICameraScanner({ onEarnPoints, addNotification }: { 
+  onEarnPoints: (points: number) => void;
+  addNotification: (notif: { title: string; desc: string; type: 'info' | 'warn' | 'success' }) => void;
+}) {
   // Navigation tabs within the scanner panel
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'insights' | 'edu'>('scan');
 
@@ -191,7 +195,11 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
   // Image upload and automatic downscaling on canvas
   const handleImageFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('Unsupported file format. Please upload a JPEG or PNG image.');
+      addNotification({
+        title: 'Unsupported File',
+        desc: 'Please upload a valid image file (JPEG, PNG, WEBP).',
+        type: 'warn'
+      });
       return;
     }
 
@@ -241,26 +249,30 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
     setActivePreset(null);
 
     try {
-      let analysis: WasteAnalysisResponse;
-
-      // Check if real Supabase Active
-      const isReal = await SupabaseService.saveScan === undefined ? false : true; // Service fallback logic
-
-      // Intelligent file name scanning for customized simulated responses
-      analysis = matchCustomImage(fileName);
+      let analysis: WasteAnalysisResponse | null = null;
 
       // If active, run through edge classifier
       try {
         const edgeData = await SupabaseService.classifyWaste(base64Image, null);
-        if (edgeData) analysis = edgeData;
-      } catch {
-        // Fall back to the local simulator when the edge classifier is unavailable.
+        if (edgeData) {
+          analysis = edgeData;
+        } else {
+          throw new Error("AI Vision service did not return a valid analysis.");
+        }
+      } catch (err) {
+        console.log('Using robust file-matching simulator (Simulation Mode):', err);
+        // In production, we should not have a fallback. We let the error be caught below.
+        throw err;
       }
 
       setResult(analysis);
     } catch (err) {
       console.error('Classification processing error:', err);
-      alert('Waste classification failed. Please check connection and try again.');
+      addNotification({
+        title: 'Classification Failed',
+        desc: 'The AI Vision engine could not process the image. Please check your connection and try again.',
+        type: 'warn'
+      });
     } finally {
       setAnalyzing(false);
     }
@@ -283,97 +295,6 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
     } finally {
       setAnalyzing(false);
     }
-  };
-
-  // Match keyword filename inside Simulation Mode
-  const matchCustomImage = (name: string): WasteAnalysisResponse => {
-    const lower = name.toLowerCase();
-    if (lower.includes('battery') || lower.includes('power') || lower.includes('cell') || lower.includes('electronic') || lower.includes('volt') || lower.includes('charger')) {
-      return {
-        itemName: 'AA Alkaline Household Battery',
-        category: 'hazardous',
-        confidence: 0.96,
-        recyclable: false,
-        greenPoints: 40,
-        binType: 'Red Hazard / E-Waste Depot Bin',
-        disposalInstructions: 'Do NOT throw in municipal trash. Recycle at designated battery drop-off retail hubs or municipal electronic hazardous waste events.',
-        materialsDetected: ['Manganese Dioxide', 'Zinc', 'Steel', 'Potassium Hydroxide Electrolyte'],
-        co2SavedKg: 0.45
-      };
-    } else if (lower.includes('banana') || lower.includes('apple') || lower.includes('food') || lower.includes('peel') || lower.includes('fruit') || lower.includes('vegetable') || lower.includes('salad') || lower.includes('egg') || lower.includes('bread')) {
-      return {
-        itemName: 'Organic Food Scraps (Banana Peel)',
-        category: 'organic',
-        confidence: 0.95,
-        recyclable: false,
-        greenPoints: 10,
-        binType: 'Green Organics / Compost Bin',
-        disposalInstructions: 'Deposit directly into the green compost bin. Do not dispose in standard plastic bags — use certified compostable liners only.',
-        materialsDetected: ['Biodegradable Organic Matter', 'Potassium-rich fiber'],
-        co2SavedKg: 0.08
-      };
-    } else if (lower.includes('box') || lower.includes('cardboard') || lower.includes('paper') || lower.includes('carton') || lower.includes('envelope') || lower.includes('shipping')) {
-      return {
-        itemName: 'Corrugated Cardboard Shipping Box',
-        category: 'recyclable',
-        confidence: 0.97,
-        recyclable: true,
-        greenPoints: 20,
-        binType: 'Blue Recycling Bin (Paper & Cardboard)',
-        disposalInstructions: 'Flatten completely to optimize collection container space. Remove heavy adhesive tape or packaging stickers if possible.',
-        materialsDetected: ['Unbleached Kraft Paperboard', 'Cellulose Fiber'],
-        co2SavedKg: 0.25
-      };
-    } else if (lower.includes('can') || lower.includes('metal') || lower.includes('foil') || lower.includes('aluminum') || lower.includes('steel') || lower.includes('tin')) {
-      return {
-        itemName: 'Aluminum Seltzer Beverage Can',
-        category: 'recyclable',
-        confidence: 0.98,
-        recyclable: true,
-        greenPoints: 15,
-        binType: 'Blue Recycling Bin (Plastics & Cans)',
-        disposalInstructions: 'Empty container fully. Rinse quickly to remove organic sugar residues, crush lightly to optimize collection spacing.',
-        materialsDetected: ['Aluminum Alloy 3004', 'Polymer Coating'],
-        co2SavedKg: 0.16
-      };
-    } else if (lower.includes('glass') || lower.includes('bottle') || lower.includes('jar') || lower.includes('cup') || lower.includes('shards')) {
-      return {
-        itemName: 'Flint Glass Preserve Jar',
-        category: 'recyclable',
-        confidence: 0.94,
-        recyclable: true,
-        greenPoints: 15,
-        binType: 'Blue Recycling Bin (Glass & Jars)',
-        disposalInstructions: 'Separate metallic lids and dispose in cans stream. Rinse glass body, check for cracks and place in glass collection compartments.',
-        materialsDetected: ['Silicon Dioxide (SiO₂)', 'Soda Ash', 'Limestone'],
-        co2SavedKg: 0.11
-      };
-    } else if (lower.includes('cup') || lower.includes('coffee') || lower.includes('styrofoam') || lower.includes('diaper') || lower.includes('plastic bag') || lower.includes('pouch') || lower.includes('wrapper') || lower.includes('chip')) {
-      return {
-        itemName: 'Expanded Polystyrene Takeout Box (Styrofoam)',
-        category: 'landfill',
-        confidence: 0.91,
-        recyclable: false,
-        greenPoints: 5,
-        binType: 'Black Landfill Waste Bin',
-        disposalInstructions: 'Dispose inside standard black municipal trash container. Styrofoam cannot be conventionally recycled in local segments due to contamination and low density.',
-        materialsDetected: ['Expanded Polystyrene (PS 6)', 'Synthetic Heat Coating'],
-        co2SavedKg: 0.0
-      };
-    }
-
-    // Default general waste
-    return {
-      itemName: 'Generic Poly-Coated Mixed Waste',
-      category: 'landfill',
-      confidence: 0.89,
-      recyclable: false,
-      greenPoints: 5,
-      binType: 'Black Landfill Waste Bin',
-      disposalInstructions: 'Marked as general composite landfill waste. Place in black bin. Consider reusable packaging alternatives for future shopping.',
-      materialsDetected: ['Composite Laminates', 'Mixed Polymers'],
-      co2SavedKg: 0.0
-    };
   };
 
   // Claim points from classified results
@@ -409,7 +330,11 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
 
       } catch (err) {
         console.error('Failed to claim and write scan:', err);
-        alert('Could not submit deponent actions. Please check network.');
+        addNotification({
+          title: 'Claim Failed',
+          desc: 'Could not save your scan and claim points. Please check your network connection.',
+          type: 'warn'
+        });
       }
     }
   };
@@ -544,7 +469,7 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
         </div>
         <div className="flex items-center space-x-1.5 self-start sm:self-center">
           <Sparkles className="h-4 w-4 text-emerald-500 animate-pulse" />
-          <span className="text-[10px] font-bold font-mono uppercase text-slate-500 dark:text-slate-400">Gemini 3.5 Flash Connected</span>
+          <span className="text-[10px] font-bold font-mono uppercase text-slate-500 dark:text-slate-400">Groq Vision Engine Connected</span>
         </div>
       </div>
 
@@ -617,7 +542,7 @@ export default function AICameraScanner({ onEarnPoints }: AICameraScannerProps) 
                       >
                         <RefreshCw className="h-12 w-12 text-emerald-500 animate-spin" />
                         <div>
-                          <p className="text-base font-bold text-slate-100 tracking-tight">GEMINI CLASSIFYING MOLECULES...</p>
+                          <p className="text-base font-bold text-slate-100 tracking-tight">GROQ VISION ANALYZING...</p>
                           <p className="text-xs text-slate-400 font-mono mt-1">Analyzing density, category models & decomposibility ratings</p>
                         </div>
                         {/* Laser line moving up/down */}

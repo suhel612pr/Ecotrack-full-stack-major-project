@@ -10,7 +10,6 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface SidebarProps {
   user: UserProfile;
-  onRoleChange: (role: UserProfile['role']) => void;
   currentPage: string;
   setCurrentPage: (page: string) => void;
   citizenTab: CitizenTab;
@@ -30,7 +29,6 @@ interface SidebarProps {
 
 export default function Sidebar({
   user,
-  onRoleChange,
   currentPage,
   setCurrentPage,
   citizenTab,
@@ -88,7 +86,6 @@ export default function Sidebar({
           setWorkerTab('qr-scan');
         } else {
           // Default to citizen view for scanning recyclables
-          if (user.role !== 'citizen') onRoleChange('citizen');
           setCitizenTab('scanner');
         }
       }
@@ -139,7 +136,6 @@ export default function Sidebar({
         if (user.role === 'worker') {
           setWorkerTab('route');
         } else {
-          if (user.role === 'citizen') onRoleChange('supervisor');
           setAdminTab('fleet');
         }
       }
@@ -168,7 +164,6 @@ export default function Sidebar({
       active: currentPage === 'dashboard' && user.role === 'citizen' && citizenTab === 'rewards',
       action: () => {
         setCurrentPage('dashboard');
-        if (user.role !== 'citizen') onRoleChange('citizen');
         setCitizenTab('rewards');
       }
     },
@@ -179,7 +174,6 @@ export default function Sidebar({
       active: currentPage === 'dashboard' && user.role === 'citizen' && citizenTab === 'home', // Leadboard is on home
       action: () => {
         setCurrentPage('dashboard');
-        if (user.role !== 'citizen') onRoleChange('citizen');
         setCitizenTab('home');
         // Smooth scroll to leaderboard element after render
         setTimeout(() => {
@@ -350,46 +344,6 @@ export default function Sidebar({
             </div>
           )}
 
-          {/* Floating list of perspectives / identity manager */}
-          <AnimatePresence>
-            {showRoleSelector && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="absolute bottom-14 left-0 w-64 bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-50 space-y-1 text-zinc-100"
-              >
-                <div className="px-2 py-1.5 border-b border-zinc-900 mb-1 flex items-center justify-between">
-                  <span className="text-[9px] font-bold font-mono tracking-wider text-zinc-500 uppercase">SWAP PERSPECTIVE</span>
-                  <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">{user.points} XP</span>
-                </div>
-
-                {roles.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => {
-                      onRoleChange(r.id);
-                      setShowRoleSelector(false);
-                      setCurrentPage('dashboard');
-                    }}
-                    className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition ${
-                      user.role === r.id 
-                        ? 'bg-zinc-900 text-emerald-400 border border-zinc-800' 
-                        : 'text-zinc-400 hover:bg-zinc-900/40 hover:text-zinc-200 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{r.icon}</span>
-                      <span>{r.name}</span>
-                    </div>
-                    <span className="text-[8px] font-mono font-black text-zinc-500 px-1 border border-zinc-800 rounded">
-                      {r.badge}
-                    </span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </div>
 

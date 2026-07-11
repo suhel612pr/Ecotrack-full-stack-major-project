@@ -1,24 +1,22 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect } from 'react';
 import AuthModal from './components/AuthModal';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Footer from './components/Footer';
+import LandingPage from './pages/LandingPage';
+import CitizenPortal from './pages/CitizenPortal';
+import WorkerPortal from './pages/WorkerPortal';
+import AdminPortal from './pages/AdminPortal';
+import FAQContact from './pages/FAQContact';
+import SmartCityOS from './pages/SmartCityOS';
 import EcoBot from './components/EcoBot';
 import CommandPalette from './components/CommandPalette';
 import { SmartBin, CivicReport, WorkerTask, UserProfile, CitizenTab, WorkerTab, AdminTab } from './types';
-import { Bell, ShieldAlert, X, RefreshCw } from 'lucide-react';
+import { Bell, ShieldAlert, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SupabaseService } from './supabaseService';
 import { getSupabase, isSupabaseActive } from './supabaseClient';
 import SetupErrorPage from './components/SetupErrorPage';
-
-// Lazy load page components for better performance
-const LandingPage = lazy(() => import('./pages/LandingPage'));
-const CitizenPortal = lazy(() => import('./pages/CitizenPortal'));
-const WorkerPortal = lazy(() => import('./pages/WorkerPortal'));
-const AdminPortal = lazy(() => import('./pages/AdminPortal'));
-const FAQContact = lazy(() => import('./pages/FAQContact'));
-const SmartCityOS = lazy(() => import('./pages/SmartCityOS'));
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('home'); // 'home', 'dashboard', 'about', 'privacy', 'terms'
@@ -277,6 +275,19 @@ export default function App() {
     }
   };
 
+  const handleLoadDemoMode = async () => {
+    try {
+      await SupabaseService.loadDemoMode();
+      addNotification({
+        title: 'Enterprise Demo Loaded',
+        desc: 'Seeded +10K profiles, 13 smart bins, and 4 dispatch incidents across city bounds.',
+        type: 'success'
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAddReport = async (reportData: Partial<CivicReport>) => {
     try {
       await SupabaseService.addReport(reportData);
@@ -488,15 +499,7 @@ export default function App() {
 
         {/* 3. Main Content Routing Stage */}
         <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-          <Suspense fallback={
-            <div className="w-full h-full flex items-center justify-center min-h-[400px]">
-              <div className="flex flex-col items-center space-y-2">
-                <RefreshCw className="h-6 w-6 text-emerald-500 animate-spin" />
-                <span className="text-xs text-slate-400">Loading Workspace...</span>
-              </div>
-            </div>
-          }>
-            <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait">
             <motion.div
               key={currentPage + (currentPage === 'dashboard' ? user.role : '')}
               initial={{ opacity: 0, y: 15 }}
@@ -541,6 +544,7 @@ export default function App() {
                     <CitizenPortal
                       user={user} 
                       bins={bins} 
+                      reports={reports}
                       onEarnPoints={handleEarnPoints}
                       onAddReport={handleAddReport}
                       activeTab={citizenTab}
@@ -584,7 +588,6 @@ export default function App() {
               {currentPage === 'terms' && <FAQContact initialView="terms" />}
             </motion.div>
           </AnimatePresence>
-          </Suspense>
         </main>
 
         {/* 4. Global Footer */}

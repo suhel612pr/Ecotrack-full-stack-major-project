@@ -33,20 +33,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     const active = isSupabaseActive();
 
     if (!active || !supabase) {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const simulatedProfile: UserProfile = {
-        email: email || 'suhelias786@gmail.com',
-        role: 'citizen',
-        name: name || email.split('@')[0] || 'Elias Suhel',
-        points: 125,
-        avatarUrl: ''
-      };
-      onAuthSuccess(simulatedProfile);
-      setSuccess('Connected via offline Local Sandbox session!');
-      setTimeout(() => {
-        onClose();
-        setSuccess(null);
-      }, 1500);
+      setError(
+        'Database connection is not available. Please check your network or app configuration.'
+      );
       setLoading(false);
       return;
     }
@@ -140,9 +129,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           }, 1500);
         }
       }
-    } catch (err: any) {
-      console.error("Authentication error:", err);
-      setError(err.message || 'An error occurred during authentication.');
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : 'An unknown error occurred during authentication.';
+      console.error('Authentication error:', errorMessage, err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -169,9 +162,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         redirectTo: window.location.origin
       });
       if (resetError) throw resetError;
-      setSuccess('Verification/Reset link dispatched to your inbox.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to dispatch recovery email.');
+      setSuccess('If an account exists for this email, a password reset link has been sent.');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to dispatch recovery email.';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -188,15 +182,11 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         {/* Connection status header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-1.5">
-            {isSupabaseActive() ? (
-              <div className="flex items-center space-x-1 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold font-mono uppercase px-2 py-0.5 rounded-full border border-emerald-500/20">
-                <Cloud className="h-3 w-3 mr-1" /> Cloud Mode Active
-              </div>
-            ) : (
-              <div className="flex items-center space-x-1 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 text-[10px] font-bold font-mono uppercase px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-800">
-                <WifiOff className="h-3 w-3 mr-1" /> Simulated Mode
-              </div>
-            )}
+            <div className={`flex items-center space-x-1 text-[10px] font-bold font-mono uppercase px-2 py-0.5 rounded-full border ${isSupabaseActive() 
+              ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' 
+              : 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-500/20'}`}>
+              {isSupabaseActive() ? <Cloud className="h-3 w-3 mr-1" /> : <WifiOff className="h-3 w-3 mr-1" />} {isSupabaseActive() ? 'Cloud Connection Active' : 'Database Offline'}
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -303,7 +293,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               <span className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
             ) : (
               <>
-                <span>{isSignUp ? 'Activate Cloud Sync' : 'Access Dashboard'}</span>
+                <span>{isSignUp ? 'Create Account' : 'Sign In'}</span>
                 <ArrowRight className="h-4 w-4" />
               </>
             )}

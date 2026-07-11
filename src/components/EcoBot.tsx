@@ -114,20 +114,9 @@ export default function EcoBot({ user }: EcoBotProps) {
         }
       }
 
+      // If the Supabase function fails or returns no reply, show a generic error.
       if (!replyText) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const lower = textToSend.toLowerCase();
-        if (lower.includes('segregation') || lower.includes('separate') || lower.includes('guide')) {
-          replyText = `### EcoTrack Smart Waste Segregation Guide:\n\n- **Blue Recycling Bin**: Plastics (PET 1, HDPE 2), Cardboard, Paperboard, and Aluminum Cans. Clean and compress containers first.\n- **Green Organics Bin**: Food scraps, coffee grounds, plant clippings, and compostable paper wrappers.\n- **Black Landfill Bin**: Styrofoam, multi-layer pouches, diapers, and contaminated greasy pizza boxes.\n- **Red Haz / E-Waste**: Household batteries, spent LED bulbs, chemical paints, and mercury thermometers.`;
-        } else if (lower.includes('route') || lower.includes('optimize') || lower.includes('worker')) {
-          replyText = `### AI Route Optimization Brief:\n\nUsing an integrated TSP Hamiltonian Solver, crew vehicles are auto-routed past critical smart bins (over 85% fill) and active citizen hazard reports. This cuts municipal carbon footprints by **28.5%** on average and guarantees same-day clearance.`;
-        } else if (lower.includes('saving') || lower.includes('cost') || lower.includes('budget')) {
-          replyText = `### Administrative Cost Analysis:\n\n- **Dynamically Routed Fleets**: Reduced fuel consumption by **18.4%** across Segment V.\n- **On-Demand Clearance**: Prevented empty-bin runs, saving an estimated **$12,400** in municipal overtime this quarter.\n- **Landfill Diversion Bonuses**: Improved sorting fidelity yields a +5% diversion credit from state environmental oversight boards.`;
-        } else if (lower.includes('report') || lower.includes('incident') || lower.includes('complaint')) {
-          replyText = `### Submitting a Civic Report:\n\nTo report illegal dumping or overflowing bins:\n1. Switch your role to **Citizen** using the top-right profile switcher.\n2. Navigate to the **Incident Reporter** tab.\n3. Input the title, description, category, and attach a simulated image.\n4. Click "Register Citizen Report" to dispatch sanitation crews and earn **25 Green Credits**!`;
-        } else {
-          replyText = `EcoBot here! To assist you as a **${user.role.toUpperCase()}**, I've queued up system telemetry logs.\n\nEcoTrack's AI models are analyzing active smart bins, fuel-saving EV routing matrices, and community leaderboards to build cleaner, more sustainable municipal segments. Ask me about **segregation guidelines**, **route optimization**, or **citizen rewards**!`;
-        }
+        throw new Error("The AI assistant did not provide a response.");
       }
 
       const botMsg: Message = {
@@ -142,7 +131,7 @@ export default function EcoBot({ user }: EcoBotProps) {
       console.error(err);
       const errMsg: Message = {
         id: `err-${Date.now()}`,
-        text: "I apologize, I experienced a minor network interruption. Here is a localized response: Please verify your internet connection or try again shortly.",
+        text: "I apologize, but I'm unable to process this request at the moment. Please check your network connection or try again later.",
         sender: 'bot',
         timestamp: new Date().toTimeString().substring(0, 5)
       };
@@ -238,7 +227,7 @@ export default function EcoBot({ user }: EcoBotProps) {
                   </div>
                   <span className="text-[11px] text-[#A1A1AA] flex items-center mt-0.5">
                     <Sparkles className="h-3 w-3 mr-1 text-amber-500 animate-pulse" />
-                    Powered by @google/genai SDK
+                    Powered by Groq AI Engine
                   </span>
                 </div>
               </div>
