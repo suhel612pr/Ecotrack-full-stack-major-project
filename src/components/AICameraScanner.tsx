@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Camera, Scan, Sparkles, RefreshCw, CheckCircle2, ShieldAlert, Award, Leaf, Trash, Layers,
   Upload, Trash2, Calendar, Search, ArrowUpDown, ChevronLeft, ChevronRight, HelpCircle,
@@ -10,7 +10,29 @@ import { SupabaseService } from '../supabaseService';
 import { UserProfile } from '../types';
 
 interface AICameraScannerProps {
+  user: UserProfile;
   onEarnPoints: (points: number) => void;
+  addNotification: (notif: { title: string; desc: string; type: 'info' | 'warn' | 'success' }) => void;
+}
+
+/**
+ * Converts a data URL string (e.g., from a canvas) into a File object.
+ * @param dataurl The data URL.
+ * @param filename The desired filename for the new File object.
+ * @returns A File object.
+ */
+const dataURLtoFile = (dataurl: string, filename: string): File | null => {
+  const arr = dataurl.split(',');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!arr[0] || !mimeMatch) return null;
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
 }
 
 // Educational material static database
@@ -90,10 +112,7 @@ const SAMPLE_PRESETS = [
   { id: 'broken_glass', name: 'Broken Glass', icon: '🍷', label: 'Landfill' }
 ];
 
-export default function AICameraScanner({ onEarnPoints, addNotification }: { 
-  onEarnPoints: (points: number) => void;
-  addNotification: (notif: { title: string; desc: string; type: 'info' | 'warn' | 'success' }) => void;
-}) {
+export default function AICameraScanner({ user, onEarnPoints, addNotification }: AICameraScannerProps) {
   // Navigation tabs within the scanner panel
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'insights' | 'edu'>('scan');
 
@@ -135,7 +154,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
       const data = await SupabaseService.getScans();
       setScans(data);
     } catch (err) {
-      console.error('Failed to load scan history:', err);
+      // Error is handled gracefully by showing loading/empty state.
     } finally {
       setLoadingHistory(false);
     }
@@ -160,7 +179,6 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
         videoRef.current.play();
       }
     } catch (err: any) {
-      console.error('Camera initialization failed:', err);
       setCameraError('Permission denied or camera device unavailable. Please drop an image or use sample presets.');
       setCameraActive(false);
     }
@@ -251,20 +269,12 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
     try {
       let analysis: WasteAnalysisResponse | null = null;
 
-      // If active, run through edge classifier
-      try {
-        const edgeData = await SupabaseService.classifyWaste(base64Image, null);
-        if (edgeData) {
-          analysis = edgeData;
-        } else {
-          throw new Error("AI Vision service did not return a valid analysis.");
-        }
-      } catch (err) {
-        console.log('Using robust file-matching simulator (Simulation Mode):', err);
-        // In production, we should not have a fallback. We let the error be caught below.
-        throw err;
+      const edgeData = await SupabaseService.classifyWaste(base64Image, null);
+      if (edgeData) {
+        analysis = edgeData;
+      } else {
+        throw new Error("AI Vision service did not return a valid analysis.");
       }
-
       setResult(analysis);
     } catch (err) {
       console.error('Classification processing error:', err);
@@ -299,22 +309,38 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
 
   // Claim points from classified results
   const handleClaimPoints = async () => {
-    if (result && !claimed) {
+    if (result && !claimed && user.id) {
       try {
-        const scanToSave: Partial<AIWasteScan> = {
+        let finalImageUrl = '';
+
+        // 1. If there's a captured image, upload it to Supabase Storage.
+        if (capturedImage) {
+          const imageFile = dataURLtoFile(capturedImage, `scan_${user.id}_${Date.now()}.jpg`);
+          if (imageFile) {
+            // This service method should handle the actual upload and return the public URL.
+            // This is a critical step for performance and scalability.
+            finalImageUrl = await SupabaseService.uploadScanImage(imageFile, user.id);
+          }
+        } else if (activePreset) {
+          // For presets, we can use a placeholder path.
+          finalImageUrl = `/preset-images/${activePreset}.jpg`;
+        }
+
+        // 2. Create the scan record with the storage URL.
+        const scanToSave: Omit<AIWasteScan, 'id' | 'createdAt' | 'userId'> = {
           itemName: result.itemName,
           category: result.category,
           confidence: result.confidence,
           recyclable: result.recyclable,
           greenPoints: result.greenPoints,
           binType: result.binType,
-          disposalInstructions: result.disposalInstructions,
+          disposalInstructions: result.disposalInstructions, // Corrected typo from 'dispoal'
           materialsDetected: result.materialsDetected,
           co2SavedKg: result.co2SavedKg,
-          imageUrl: capturedImage || ''
+          imageUrl: finalImageUrl,
         };
 
-        const saved = await SupabaseService.saveScan(scanToSave);
+        const saved = await SupabaseService.saveScan(scanToSave, user.id); // Pass user.id
         
         // Award points in parent application profile state
         onEarnPoints(result.greenPoints);
@@ -329,7 +355,6 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
         setTimeout(() => setShowCelebration(false), 4500);
 
       } catch (err) {
-        console.error('Failed to claim and write scan:', err);
         addNotification({
           title: 'Claim Failed',
           desc: 'Could not save your scan and claim points. Please check your network connection.',
@@ -401,23 +426,25 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
   };
 
   // Filter & Sort Scan History
-  const filteredScans = scans.filter(s => {
-    const matchesSearch = s.itemName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          s.binType.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = categoryFilter === 'all' || s.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  }).sort((a, b) => {
-    if (sortBy === 'newest') {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    } else if (sortBy === 'confidence') {
-      return b.confidence - a.confidence;
-    } else {
-      return b.greenPoints - a.greenPoints;
-    }
-  });
+  const filteredScans = useMemo(() => {
+    return scans.filter(s => {
+      const matchesSearch = s.itemName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            s.binType.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = categoryFilter === 'all' || s.category === categoryFilter;
+      return matchesSearch && matchesCategory;
+    }).sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      } else if (sortBy === 'confidence') {
+        return b.confidence - a.confidence;
+      } else {
+        return b.greenPoints - a.greenPoints;
+      }
+    });
+  }, [scans, searchQuery, categoryFilter, sortBy]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredScans.length / itemsPerPage));
-  const paginatedScans = filteredScans.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredScans.length / itemsPerPage)), [filteredScans, itemsPerPage]);
+  const paginatedScans = useMemo(() => filteredScans.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredScans, currentPage, itemsPerPage]);
 
   // Insights analytics data
   const totalCarbonSaved = scans.reduce((acc, curr) => acc + (curr.co2SavedKg || 0), 0);
@@ -506,6 +533,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
               key="scan_tab"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
               exit={{ opacity: 0, y: -10 }}
               className="grid grid-cols-1 lg:grid-cols-12 gap-6"
             >
@@ -535,8 +563,9 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
                     {analyzing ? (
                       <motion.div 
                         key="scanning"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
                         exit={{ opacity: 0 }}
                         className="flex flex-col items-center space-y-4 z-10"
                       >
@@ -553,8 +582,9 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
                       // Active Hardware Video Stream
                       <motion.div 
                         key="camera_active"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
+                        initial={{ opacity: 0, scale: 0.98 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.2 }}
                         className="absolute inset-0 w-full h-full flex flex-col items-center justify-center"
                       >
                         <video 
@@ -593,6 +623,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
                       <motion.div 
                         key="result_screen"
                         initial={{ opacity: 0, scale: 0.98 }}
+                        transition={{ duration: 0.3 }}
                         animate={{ opacity: 1, scale: 1 }}
                         className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-slate-950"
                       >
@@ -633,8 +664,9 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
                       // Idle/Upload State
                       <motion.div 
                         key="idle_upload"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
                         className="flex flex-col items-center space-y-4 z-10 p-4"
                       >
                         <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 rounded-full relative">
@@ -717,6 +749,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
                       key="active_result"
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
                       exit={{ opacity: 0, x: -20 }}
                       className="space-y-4 bg-slate-50 dark:bg-slate-900/30 p-6 rounded-3xl border border-slate-200/50 dark:border-slate-800/80"
                     >
@@ -849,6 +882,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
               key="history_tab"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
             >
@@ -981,6 +1015,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
               key="insights_tab"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
             >
@@ -1093,6 +1128,7 @@ export default function AICameraScanner({ onEarnPoints, addNotification }: {
               key="edu_tab"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
             >

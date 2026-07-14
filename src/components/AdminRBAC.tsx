@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { ShieldCheck, UserCheck, Trash2, Key, Users, AlertTriangle } from 'lucide-react';
 import { SupabaseService } from '../supabaseService';
 import { UserProfile } from '../types';
+import { logError } from '../logger';
 
 interface AdminRBACProps {
   addNotification: (notif: { title: string; desc: string; type: 'info' | 'warn' | 'success' }) => void;
@@ -24,7 +25,7 @@ export default function AdminRBAC({ addNotification }: AdminRBACProps) {
       setProfiles(data);
     } catch (err) {
       setError('Failed to fetch user profiles.');
-      console.error(err);
+      logError('Failed to fetch user profiles.', err);
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ export default function AdminRBAC({ addNotification }: AdminRBACProps) {
         desc: 'Failed to update the user role. Please check permissions.',
         type: 'warn'
       });
-      console.error(err);
+      logError('Failed to update user role.', err);
     }
   };
 
@@ -75,7 +76,7 @@ export default function AdminRBAC({ addNotification }: AdminRBACProps) {
           desc: 'Failed to update user status.',
           type: 'warn'
         });
-        console.error(err);
+        logError('Failed to update user status.', err);
       }
     }
   };
@@ -99,8 +100,8 @@ export default function AdminRBAC({ addNotification }: AdminRBACProps) {
         {error && <div className="text-center py-8 text-xs text-rose-500">{error}</div>}
 
         {!loading && !error && (
-        {/* Desktop Table View */}
-        <div className="overflow-x-auto">
+          /* Desktop Table View */
+          <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-100 dark:border-slate-850 text-slate-400 font-mono">
@@ -158,7 +159,7 @@ export default function AdminRBAC({ addNotification }: AdminRBACProps) {
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
         )}
       </div>
 

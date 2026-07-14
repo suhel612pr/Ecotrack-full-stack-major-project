@@ -16,7 +16,7 @@ This script is structured to show off the visual craftsmanship, data architectur
 ### **0:45 - 1:45 | AI-Powered Material Classification (Citizen View)**
 * **Visual**: Click **Launch Hub**, switch perspective to **Citizen**, and open the **AI Scanner** tab. Upload a sample preset image (e.g., Plastic Water Bottle). Show the instant confidence breakdown, CO₂ calculations, and sorting instructions.
 * **Script**:
-  > *"For a citizen, EcoTrack AI acts as an ambient recycling companion. By uploading or capturing an item, our server-side computer vision network—powered by Gemini Flash—analyzes the material compound, classifies the exact municipal disposal bin, calculates precise greenhouse gas savings, and logs the action on the citizen ledger. The citizen immediately earns Green Credits (XP) which are cryptographically recorded in their profile."*
+  > *"For a citizen, EcoTrack AI acts as an ambient recycling companion. By uploading or capturing an item, our server-side computer vision network—powered by **Groq Vision**—analyzes the material compound, classifies the exact municipal disposal bin, calculates precise greenhouse gas savings, and logs the action on the citizen ledger. The citizen immediately earns Green Credits (XP) which are cryptographically recorded in their profile."*
 
 ### **1:45 - 2:45 | Municipal Real-Time Telemetry & SVG Mapping (Command Hub)**
 * **Visual**: Swap perspective to **Supervisor Hub** or **Municipal Admin**, and go to **Smart Bins**. Show the interactive smart grid list and the SVG geographic node display indicating bin fill rates, temperatures, and battery charges.

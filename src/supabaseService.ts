@@ -88,11 +88,13 @@ const DEFAULT_VEHICLES: Vehicle[] = [
 
 // LocalStorage helpers to simulate database persistence in offline mode
 const loadLocal = <T>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
   const data = localStorage.getItem(`ecotrack_${key}`);
   return data ? JSON.parse(data) : fallback;
 };
 
 const saveLocal = <T>(key: string, value: T): void => {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(`ecotrack_${key}`, JSON.stringify(value));
 };
 
@@ -162,22 +164,25 @@ export const SupabaseService = {
   // --- AUTH SERVICES ---
   async getProfile(userId: string): Promise<UserProfile | null> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
       if (error) {
-        throw new Error(`Supabase profile query failed: ${error.message}`);
+        // Do not throw if user not found, just return null.
+        if (error.code !== 'PGRST116') throw new Error(`Supabase profile query failed: ${error.message}`);
       }
       if (data) {
         return {
+          id: data.id,
           email: data.email || '',
           role: data.role as 'citizen' | 'worker' | 'supervisor' | 'admin' || 'citizen',
           name: data.name || '',
           points: data.points || 0,
-          avatarUrl: data.avatar_url || ''
+          avatarUrl: data.avatar_url || '',
+          status: data.status || 'Active'
         };
       }
       return null;
@@ -187,7 +192,7 @@ export const SupabaseService = {
 
   async updateProfile(userId: string, profile: Partial<UserProfile>): Promise<void> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase
         .from('profiles')
         .upsert({
@@ -201,13 +206,88 @@ export const SupabaseService = {
       if (error) {
         throw new Error(`Supabase profile upsert failed: ${error.message}`);
       }
+    } else {
+      // Local mode doesn't persist profile changes beyond the session.
+    }
+  },
+
+  async getUsers(): Promise<UserProfile[]> {
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (error) {
+        throw new Error(`Supabase profiles query failed: ${error.message}`);
+      }
+      if (data) {
+        return data.map(d => ({
+          id: d.id,
+          email: d.email || '',
+          role: d.role as 'citizen' | 'worker' | 'supervisor' | 'admin' || 'citizen',
+          name: d.name || '',
+          points: d.points || 0,
+          avatarUrl: d.avatar_url || '',
+          status: d.status || 'Active'
+        }));
+      }
+      return [];
+    }
+    // Mock data for local/offline mode
+    return [
+        { id: 'user-1', email: 'citizen@test.com', role: 'citizen', name: 'John Doe', points: 120, avatarUrl: '', status: 'Active' },
+        { id: 'user-2', email: 'worker@test.com', role: 'worker', name: 'Jane Smith', points: 450, avatarUrl: '', status: 'Active' },
+    ];
+  },
+
+  async updateUserRole(userId: string, role: UserProfile['role']): Promise<void> {
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
+      const { error } = await supabase.from('profiles').update({ role }).eq('id', userId);
+      if (error) throw new Error(`Supabase role update failed: ${error.message}`);
+    }
+  },
+
+  async updateUserStatus(userId: string, status: string): Promise<void> {
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
+      const { error } = await supabase.from('profiles').update({ status }).eq('id', userId);
+      if (error) throw new Error(`Supabase status update failed: ${error.message}`);
+    }
+  },
+
+  async uploadScanImage(imageFile: File, userId: string): Promise<string> {
+    const supabase = getSupabase();
+    if (!isSupabaseActive() || !supabase) {
+      // In local mode, return a placeholder or empty string as we can't upload.
+      return '';
+    }
+
+    const safeName = imageFile.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
+    const filePath = `${userId}/${Date.now()}-${safeName}`;
+
+    try {
+      const { error } = await supabase.storage.from('scan-images').upload(filePath, imageFile, {
+        upsert: true,
+        contentType: imageFile.type || 'image/jpeg'
+      });
+      if (error) {
+        console.warn('Scan image upload failed:', error.message);
+        return '';
+      }
+      const { data } = supabase.storage.from('scan-images').getPublicUrl(filePath);
+      return data?.publicUrl || '';
+    } catch (err) {
+      console.warn('Scan image upload exception:', err);
+      return '';
     }
   },
 
   // --- SMART BINS ---
   async getSmartBins(): Promise<SmartBin[]> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase
         .from('smart_bins') // This table name must match your DB schema
         .select('*')
@@ -222,8 +302,10 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase smart_bins query returned no data');
       }
-      return data as SmartBin[];
-    }
+      // Map snake_case from DB to camelCase for the app
+      return (data as any[]).map(b => ({ ...b, fillLevel: b.fill_level, batteryLevel: b.battery_level, lastEmptied: b.last_emptied, signalStrength: b.signal_strength, sensorHealth: b.sensor_health, fireAlert: b.fire_alert, maintenanceStatus: b.maintenance_status }));
+    } 
+    // Return mock data if offline
     return loadLocal('bins', DEFAULT_BINS);
   },
 
@@ -246,7 +328,7 @@ export const SupabaseService = {
     };
 
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase.from('smart_bins').insert({
         name: newBin.name,
         address: newBin.address,
@@ -275,7 +357,7 @@ export const SupabaseService = {
 
   async deleteBin(id: string): Promise<void> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase.from('smart_bins').delete().eq('id', id);
       if (error) {
         throw new Error(`Supabase bin delete failed: ${error.message}`);
@@ -289,7 +371,7 @@ export const SupabaseService = {
   // --- CIVIC REPORTS ---
   async getCivicReports(): Promise<CivicReport[]> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase
         .from('reports')
         .select('*')
@@ -304,8 +386,9 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase reports query returned no data');
       }
-      return data as CivicReport[];
-    }
+      // Map snake_case from DB to camelCase for the app
+      return (data as any[]).map(r => ({ ...r, citizenName: r.citizen_name, imageUrl: r.image_url, greenPoints: r.green_points, createdAt: r.created_at, assignedWorkerId: r.assigned_worker_id }));
+    } 
     return loadLocal('reports', DEFAULT_REPORTS);
   },
 
@@ -326,7 +409,7 @@ export const SupabaseService = {
     };
 
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase.from('reports').insert({
         citizen_name: newReport.citizenName, // snake_case
         title: newReport.title,
@@ -352,61 +435,90 @@ export const SupabaseService = {
   },
 
   async dispatchReport(reportId: string, workerId: string, priority: 'low' | 'medium' | 'high'): Promise<WorkerTask> {
-    const reports = await this.getCivicReports();
-    const report = reports.find(r => r.id === reportId);
-    if (report) {
-      report.status = 'dispatched';
-      report.assignedWorkerId = workerId;
-    }
-
-    const newTask: WorkerTask = {
-      id: `task-${Date.now()}`,
-      reportId: reportId,
-      title: `Dispatch: ${report?.title || 'Reported Incident'}`,
-      description: `Reported by ${report?.citizenName || 'Citizen'}: ${report?.description || ''}`,
-      location: report?.location || 'Municipal Location',
-      lat: report?.lat || 37.7749,
-      lng: report?.lng || -122.4194,
-      priority,
-      status: 'pending',
-      type: report?.category === 'hazardous' ? 'hazardous-spill' : 'illegal-dumping'
-    };
-
     const supabase = getSupabase();
-    if (supabase) {
-      const { error: updateError } = await supabase.from('reports').update({ status: 'dispatched', assigned_worker_id: workerId }).eq('id', reportId);
-      if (updateError) {
-        throw new Error(`Supabase report status update failed: ${updateError.message}`);
+    if (isSupabaseActive() && supabase) {
+      // 1. Fetch the specific report to get its details
+      const { data: report, error: fetchError } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('id', reportId)
+        .single();
+
+      if (fetchError || !report) {
+        throw new Error(`Failed to fetch report with ID ${reportId}: ${fetchError?.message || 'Not found'}`);
       }
-      const { error: insertError } = await supabase.from('worker_tasks').insert({
-        id: newTask.id,
-        report_id: newTask.reportId, // snake_case
-        assigned_worker_id: workerId,
-        title: newTask.title,
-        description: newTask.description,
-        location: newTask.location,
-        lat: newTask.lat,
-        lng: newTask.lng,
-        priority: newTask.priority,
-        status: newTask.status,
-        type: newTask.type
-      });
-      if (insertError) {
-        throw new Error(`Supabase worker task insert failed: ${insertError.message}`);
+
+      const newTask: WorkerTask = { // Create the new task based on the fetched report
+        id: `task-${Date.now()}`,
+        reportId: reportId,
+        title: `Dispatch: ${report?.title || 'Reported Incident'}`,
+        description: `Reported by ${report?.citizenName || 'Citizen'}: ${report?.description || ''}`,
+        location: report?.location || 'Municipal Location',
+        lat: report?.lat || 37.7749,
+        lng: report?.lng || -122.4194,
+        priority,
+        status: 'pending',
+        type: report?.category === 'hazardous' ? 'hazardous-spill' : 'illegal-dumping'
+      };
+
+      try {
+        const { error: updateError } = await supabase.from('reports').update({ status: 'dispatched', assigned_worker_id: workerId }).eq('id', reportId);
+        if (updateError) {
+          throw new Error(`Supabase report status update failed: ${updateError.message}`);
+        }
+        const { error: insertError } = await supabase.from('worker_tasks').insert({
+          id: newTask.id,
+          report_id: newTask.reportId, // snake_case
+          assigned_worker_id: workerId,
+          title: newTask.title,
+          description: newTask.description,
+          location: newTask.location,
+          lat: newTask.lat,
+          lng: newTask.lng,
+          priority: newTask.priority,
+          status: newTask.status,
+          type: newTask.type
+        });
+        if (insertError) {
+          throw new Error(`Supabase worker task insert failed: ${insertError.message}`);
+        }
+      } catch (error) {
+        console.error("Error during dispatchReport transaction:", error);
+        throw error;
       }
+
+      return newTask;
     } else {
+      const reports = await this.getCivicReports();
+      const report = reports.find(r => r.id === reportId);
+      if (report) {
+        report.status = 'dispatched';
+        report.assignedWorkerId = workerId;
+      }
+
+      const newTask: WorkerTask = {
+        id: `task-${Date.now()}`,
+        reportId: reportId,
+        title: `Dispatch: ${report?.title || 'Reported Incident'}`,
+        description: `Reported by ${report?.citizenName || 'Citizen'}: ${report?.description || ''}`,
+        location: report?.location || 'Municipal Location',
+        lat: report?.lat || 37.7749,
+        lng: report?.lng || -122.4194,
+        priority,
+        status: 'pending',
+        type: report?.category === 'hazardous' ? 'hazardous-spill' : 'illegal-dumping'
+      };
       saveLocal('reports', reports);
       const tasks = loadLocal('tasks', DEFAULT_TASKS);
       tasks.unshift(newTask);
       saveLocal('tasks', tasks);
+      return newTask;
     }
-
-    return newTask;
   },
 
   async dismissReport(reportId: string): Promise<void> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase.from('reports').delete().eq('id', reportId);
       if (error) {
         throw new Error(`Supabase report delete failed: ${error.message}`);
@@ -420,7 +532,7 @@ export const SupabaseService = {
   // --- WORKER TASKS ---
   async getWorkerTasks(): Promise<WorkerTask[]> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase
         .from('worker_tasks')
         .select('*')
@@ -435,45 +547,73 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase worker tasks query returned no data');
       }
-      return data as WorkerTask[];
-    }
+      return (data as any[]).map(t => ({ ...t, binId: t.bin_id, reportId: t.report_id, assignedWorkerId: t.assigned_worker_id }));
+    } 
     return loadLocal('tasks', DEFAULT_TASKS);
   },
 
   async completeTask(taskId: string): Promise<{ task: WorkerTask; binId?: string; reportId?: string }> {
-    const tasks = await this.getWorkerTasks();
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-      task.status = 'completed';
-    }
-
     const supabase = getSupabase();
-    if (supabase) {
-      const { error: taskError } = await supabase.from('worker_tasks').update({ status: 'completed' }).eq('id', taskId);
-      if (taskError) {
-        throw new Error(`Supabase completeTask update failed: ${taskError.message}`);
-      }
+    if (isSupabaseActive() && supabase) {
+      // 1. Fetch the specific task to get its details
+      const { data: task, error: fetchError } = await supabase
+        .from('worker_tasks')
+        .select('*')
+        .eq('id', taskId)
+        .single();
       
-      if (task?.binId) {
-        const { error: binError } = await supabase.from('smart_bins').update({
-          fill_level: 0,
-          last_emptied: new Date().toISOString().replace('T', ' ').substring(0, 16),
-          fire_alert: false,
-          sensor_health: 'healthy',
-          maintenance_status: 'none'
-        }).eq('id', task.binId);
-        if (binError) {
-          throw new Error(`Supabase completeTask bin update failed: ${binError.message}`);
-        }
+      if (fetchError || !task) {
+        throw new Error(`Failed to fetch task with ID ${taskId}: ${fetchError?.message || 'Not found'}`);
       }
 
-      if (task?.reportId) {
-        const { error: reportError } = await supabase.from('reports').update({ status: 'completed' }).eq('id', task.reportId);
-        if (reportError) {
-          throw new Error(`Supabase completeTask report update failed: ${reportError.message}`);
+      try {
+        const { error: taskError } = await supabase.from('worker_tasks').update({ status: 'completed' }).eq('id', taskId);
+        if (taskError) {
+          throw new Error(`Supabase completeTask update failed: ${taskError.message}`);
         }
+        
+        if (task?.bin_id) {
+          const { error: binError } = await supabase.from('smart_bins').update({
+            fill_level: 0,
+            last_emptied: new Date().toISOString().replace('T', ' ').substring(0, 16),
+            fire_alert: false,
+            sensor_health: 'healthy',
+            maintenance_status: 'none'
+          }).eq('id', task.bin_id);
+          if (binError) {
+            throw new Error(`Supabase completeTask bin update failed: ${binError.message}`);
+          }
+        }
+
+        if (task?.report_id) {
+          const { error: reportError } = await supabase.from('reports').update({ status: 'completed' }).eq('id', task.report_id);
+          if (reportError) {
+            throw new Error(`Supabase completeTask report update failed: ${reportError.message}`);
+          }
+        }
+      } catch (error) {
+        console.error("Error during completeTask transaction:", error);
+        throw error;
       }
+
+      const completedTask: WorkerTask = {
+        ...(task as any),
+        binId: task.bin_id,
+        reportId: task.report_id,
+        assignedWorkerId: task.assigned_worker_id,
+      };
+
+      return {
+        task: completedTask,
+        binId: task.bin_id,
+        reportId: task.report_id
+      };
     } else {
+      const tasks = await this.getWorkerTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        task.status = 'completed';
+      }
       saveLocal('tasks', tasks);
 
       if (task?.binId) {
@@ -497,19 +637,18 @@ export const SupabaseService = {
         }
         saveLocal('reports', reports);
       }
+      return {
+        task: task!,
+        binId: task?.binId,
+        reportId: task?.reportId
+      };
     }
-
-    return {
-      task: task || { id: taskId, title: '', description: '', location: '', lat: 37, lng: -122, priority: 'medium', status: 'completed', type: 'bin-collection' },
-      binId: task?.binId,
-      reportId: task?.reportId
-    };
   },
 
   // --- VEHICLES ---
   async getVehicles(): Promise<any[]> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase.from('vehicles').select('*');
       if (error) {
         console.warn('Supabase vehicles query failed:', error.message);
@@ -521,14 +660,14 @@ export const SupabaseService = {
       if (!data) {
         throw new Error('Supabase vehicles query returned no data');
       }
-      return data as Vehicle[];
-    }
+      return (data as any[]).map(v => ({ ...v, battery_level: v.battery_level }));
+    } 
     return loadLocal('vehicles', DEFAULT_VEHICLES);
   },
 
   async updateVehicle(id: string, lat: number, lng: number, batteryLevel: number, status: string): Promise<void> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const { error } = await supabase.from('vehicles').update({ lat, lng, battery_level: batteryLevel, status }).eq('id', id);
       if (error) {
         throw new Error(`Supabase updateVehicle failed: ${error.message}`);
@@ -537,19 +676,19 @@ export const SupabaseService = {
       const vehicles = loadLocal('vehicles', DEFAULT_VEHICLES);
       const vehicle = vehicles.find(v => v.id === id);
       if (vehicle) {
-        vehicle.lat = lat as any;
-        vehicle.lng = lng as any;
+        vehicle.lat = lat;
+        vehicle.lng = lng;
         vehicle.battery_level = batteryLevel;
-        vehicle.status = status as any;
+        vehicle.status = status;
       }
       saveLocal('vehicles', vehicles);
     }
   },
 
-  // --- DEMO SEED SEEDER ---
+  // --- DEMO SEEDER ---
   async loadDemoMode(): Promise<any> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       // Direct Supabase Seeding
       const { error: d1 } = await supabase.from('smart_bins').delete().neq('id', 'null');
       if (d1) throw new Error(`Demo Mode clear smart_bins failed: ${d1.message}`);
@@ -633,23 +772,24 @@ export const SupabaseService = {
 
       return { success: true };
     } else {
-      localStorage.removeItem('ecotrack_bins');
-      localStorage.removeItem('ecotrack_reports');
-      localStorage.removeItem('ecotrack_tasks');
-      localStorage.removeItem('ecotrack_vehicles');
+      // In offline mode, just reset local storage to the defaults
+      saveLocal('bins', DEFAULT_BINS);
+      saveLocal('reports', DEFAULT_REPORTS);
+      saveLocal('tasks', DEFAULT_TASKS);
+      saveLocal('vehicles', DEFAULT_VEHICLES);
       return { success: true };
     }
   },
 
   // --- AI CLASSIFICATION ---
   async classifyWaste(imageBase64: string | null, samplePreset: string | null): Promise<WasteAnalysisResponse> {
-    if (isSupabaseActive()) {
+    if (isSupabaseActive() && getSupabase()) {
       if (!imageBase64) {
-        throw new Error('Supabase active: Base64 image payload is required for Edge classification.');
+        throw new Error('Supabase active: Either an image or a sample preset is required for classification.');
       }
       const supabase = getSupabase()!;
       const { data, error } = await supabase.functions.invoke('waste-classification', {
-        body: { imageBase64 }
+        body: { imageBase64, presetId: samplePreset }
       });
       if (error) {
         throw new Error(`Edge Function 'waste-classification' failed: ${error.message}`);
@@ -659,19 +799,20 @@ export const SupabaseService = {
       }
       return data;
     }
-
+    // Offline fallback
     if (samplePreset && PRESET_ANALYSES[samplePreset]) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
       return PRESET_ANALYSES[samplePreset];
     }
+    // Return a default mock response if no preset is given
     await new Promise(resolve => setTimeout(resolve, 1500));
     return PRESET_ANALYSES['plastic_bottle'];
   },
 
   // --- AI PREDICTIONS ---
   async getAIPredictions(): Promise<any> {
-    if (isSupabaseActive()) {
-      const supabase = getSupabase()!;
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase.functions.invoke('predictive-forecasting');
       if (error) {
         throw new Error(`Edge Function 'predictive-forecasting' failed: ${error.message}`);
@@ -681,7 +822,7 @@ export const SupabaseService = {
       }
       return data;
     }
-
+    // Offline fallback with mock data
     return {
       overflowForecast: [
         { binId: 'bin-102', binName: 'Smart Bin SB-102', probability: 92, estimatedTimeHours: 4, reason: 'High retail zone foot traffic' },
@@ -702,8 +843,8 @@ export const SupabaseService = {
 
   // --- AI ROUTE OPTIMIZATION ---
   async getAIOptimizedRoute(workerTasks: WorkerTask[]): Promise<any> {
-    if (isSupabaseActive()) {
-      const supabase = getSupabase()!;
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase.functions.invoke('route-optimization', {
         body: { tasks: workerTasks.filter(t => t.status === 'pending') }
       });
@@ -715,7 +856,7 @@ export const SupabaseService = {
       }
       return data;
     }
-
+    // Offline fallback with mock data
     return {
       optimizedSequence: [
         { stopIndex: 1, name: 'Central Park SB-104', lat: 37.7841, lng: -122.4045, type: 'smart-bin', payloadKg: 45 },
@@ -736,8 +877,8 @@ export const SupabaseService = {
 
   // --- SUSTAINABILITY & ESG DATA ---
   async getESGData(): Promise<any> {
-    if (isSupabaseActive()) {
-      const supabase = getSupabase()!;
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase.functions.invoke('sustainability-esg');
       if (error) {
         throw new Error(`Edge Function 'sustainability-esg' failed: ${error.message}`);
@@ -747,7 +888,7 @@ export const SupabaseService = {
       }
       return data;
     }
-
+    // Offline fallback with mock data
     return {
       kpis: {
         scope1EmissionsKg: 1250,
@@ -768,8 +909,8 @@ export const SupabaseService = {
 
   // --- WORKER PRODUCTIVITY & FLEET DATA ---
   async getWorkerProductivity(): Promise<any> {
-    if (isSupabaseActive()) {
-      const supabase = getSupabase()!;
+    const supabase = getSupabase();
+    if (isSupabaseActive() && supabase) {
       const { data, error } = await supabase.functions.invoke('worker-productivity');
       if (error) {
         throw new Error(`Edge Function 'worker-productivity' failed: ${error.message}`);
@@ -779,21 +920,51 @@ export const SupabaseService = {
       }
       return data;
     }
-
-    return {
-      avgResolutionTimeMinutes: 24.5,
-      collectionCompletionRatePct: 98.4,
-      idleAlertsCount: 1,
-      fuelEfficiencyScorePct: 96,
-      workersList: [
-        { workerId: 'worker-1', name: 'Marcus Vance', activeVehicles: 'EV-TRUCK-14', tasksCompleted: 42, idleAlerts: 0, fuelScore: 98 },
-        { workerId: 'worker-2', name: 'Sarah Jenkins', activeVehicles: 'EV-TRUCK-11', tasksCompleted: 38, idleAlerts: 1, fuelScore: 94 },
-        { workerId: 'worker-3', name: 'Dave Miller', activeVehicles: 'Crew Truck 4', tasksCompleted: 29, idleAlerts: 0, fuelScore: 95 }
-      ]
-    };
+    throw new Error('Cannot get worker productivity data without active Supabase connection.');
   },
 
-  async saveScan(scan: Partial<AIWasteScan>): Promise<AIWasteScan> {
+  // --- AI CHATBOT ---
+  async streamAIBotResponse(messages: any[]): Promise<ReadableStream<Uint8Array> | null> {
+    if (isSupabaseActive()) {
+      const supabase = getSupabase()!;
+      // The 'invoke' method with 'stream' responseType is not standard.
+      // A direct fetch to the function URL is the correct way to handle streams.
+      const edgeFunctionUrl = `${(window as any).VITE_SUPABASE_URL}/functions/v1/groq-chat`;
+
+      const response = await fetch(edgeFunctionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ messages })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Edge Function 'groq-chat' request failed: ${response.statusText}`);
+      }
+      return response.body;
+    }
+    throw new Error('Cannot get AI chat response without active Supabase connection.');
+  },
+
+  // --- EMAIL SERVICE ---
+  async sendContactEmail(from: string, subject: string, message: string): Promise<void> {
+    if (isSupabaseActive()) {
+      const supabase = getSupabase()!;
+      const { error } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: 'support@ecotrack.ai', // Your designated support email
+          from: from,
+          subject: `EcoTrack Contact Form: ${subject}`,
+          html: `<p>New message from <strong>${from}</strong>:</p><blockquote>${message}</blockquote>`
+        }
+      });
+      if (error) throw new Error(`Edge Function 'send-email' failed: ${error.message}`);
+    } else throw new Error('Cannot send email without active Supabase connection.');
+  },
+
+  async saveScan(scan: Partial<AIWasteScan>, userId: string): Promise<AIWasteScan> {
     const newScan: AIWasteScan = {
       id: scan.id || `scan-${Date.now()}`,
       itemName: scan.itemName || 'Unknown Item',
@@ -805,15 +976,17 @@ export const SupabaseService = {
       disposalInstructions: scan.disposalInstructions || 'Dispose in regular landfill trash receptacle.',
       materialsDetected: scan.materialsDetected || ['Unknown Material'],
       co2SavedKg: scan.co2SavedKg || 0,
+      userId: userId,
       imageUrl: scan.imageUrl || '',
       createdAt: scan.createdAt || new Date().toISOString()
     };
 
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       try {
         const { error } = await supabase.from('user_scans').insert({
           id: newScan.id,
+          user_id: newScan.userId,
           item_name: newScan.itemName,
           category: newScan.category,
           confidence: newScan.confidence,
@@ -826,32 +999,37 @@ export const SupabaseService = {
           image_url: newScan.imageUrl,
           created_at: newScan.createdAt
         });
-        if (error) console.error('Supabase save scan error (falling back to local):', error);
+        if (error) throw new Error(`Supabase save scan error: ${error.message}`);
       } catch (err) {
-        console.error('Supabase exception save scan:', err);
+        console.error('Supabase exception during save scan:', err);
+        throw err;
       }
     }
-
-    // Hybrid offline-first local persistence
-    const scans = loadLocal<AIWasteScan[]>('user_scans', []);
-    scans.unshift(newScan);
-    saveLocal('user_scans', scans);
     return newScan;
   },
 
-  async getScans(): Promise<AIWasteScan[]> {
+  async getScans(userId?: string): Promise<AIWasteScan[]> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('user_scans')
           .select('*')
           .order('created_at', { ascending: false });
+        
+        if (userId) {
+          query = query.eq('user_id', userId);
+        }
+        const { data, error } = await query;
+
         if (error) {
           console.error('Supabase fetch scans error (using local):', error);
-        } else if (data) {
+          throw new Error(`Supabase fetch scans error: ${error.message}`);
+        } 
+        if (data) {
           const mapped: AIWasteScan[] = data.map(s => ({
             id: s.id,
+            userId: s.user_id,
             itemName: s.item_name,
             category: s.category as WasteCategory,
             confidence: s.confidence,
@@ -864,63 +1042,19 @@ export const SupabaseService = {
             imageUrl: s.image_url,
             createdAt: s.created_at
           }));
-          saveLocal('user_scans', mapped);
           return mapped;
         }
       } catch (err) {
         console.error('Supabase exception get scans:', err);
+        throw err;
       }
     }
-
-    // Default seeded local scans to make it feel rich out-of-the-box
-    const defaultScans: AIWasteScan[] = [
-      {
-        id: 'scan-1',
-        itemName: 'PET Plastic Water Bottle',
-        category: 'recyclable',
-        confidence: 0.98,
-        recyclable: true,
-        greenPoints: 15,
-        binType: 'Blue Recycling Bin (Plastics & Cans)',
-        disposalInstructions: 'Rinse out any remaining liquid, compress the bottle to save volume.',
-        materialsDetected: ['Polyethylene Terephthalate (PET 1)'],
-        co2SavedKg: 0.12,
-        createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString() // 2 days ago
-      },
-      {
-        id: 'scan-2',
-        itemName: 'AA Alkaline Battery',
-        category: 'hazardous',
-        confidence: 0.96,
-        recyclable: false,
-        greenPoints: 40,
-        binType: 'Red Hazard / E-Waste Depot Bin',
-        disposalInstructions: 'Do NOT throw in municipal trash. Recycle at designated battery drop-off hubs.',
-        materialsDetected: ['Manganese Dioxide', 'Zinc', 'Steel'],
-        co2SavedKg: 0.45,
-        createdAt: new Date(Date.now() - 3600000 * 24 * 4).toISOString() // 4 days ago
-      },
-      {
-        id: 'scan-3',
-        itemName: 'Banana Peel Scraps',
-        category: 'organic',
-        confidence: 0.95,
-        recyclable: false,
-        greenPoints: 10,
-        binType: 'Green Organics / Compost Bin',
-        disposalInstructions: 'Deposit directly into green compost bin without any plastic bags.',
-        materialsDetected: ['Organic Matter'],
-        co2SavedKg: 0.08,
-        createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString() // 5 days ago
-      }
-    ];
-
-    return loadLocal<AIWasteScan[]>('user_scans', defaultScans);
+    return [];
   },
 
   async triggerTelemetryAlert(id: string, telemetry: any): Promise<void> {
     const supabase = getSupabase();
-    if (supabase) {
+    if (isSupabaseActive() && supabase) {
       const updates: any = {};
       if (telemetry.smokeLevel !== undefined) {
         updates.fire_alert = telemetry.smokeLevel > 50;
@@ -940,27 +1074,6 @@ export const SupabaseService = {
       const { error } = await supabase.from('smart_bins').update(updates).eq('id', id);
       if (error) {
         throw new Error(`Supabase telemetry alert update failed: ${error.message}`);
-      }
-    } else {
-      const bins = loadLocal('smart_bins', DEFAULT_BINS);
-      const bin = bins.find(b => b.id === id);
-      if (bin) {
-        if (telemetry.smokeLevel !== undefined) {
-          bin.fireAlert = telemetry.smokeLevel > 50;
-          bin.temperature = 82;
-        }
-        if (telemetry.tilt !== undefined) {
-          bin.sensorHealth = 'degraded';
-        }
-        if (telemetry.battery !== undefined) {
-          bin.batteryLevel = telemetry.battery;
-        }
-        if (telemetry.status === 'online') {
-          bin.fireAlert = false;
-          bin.sensorHealth = 'healthy';
-          bin.batteryLevel = 95;
-        }
-        saveLocal('smart_bins', bins);
       }
     }
   }

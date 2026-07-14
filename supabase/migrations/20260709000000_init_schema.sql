@@ -5,31 +5,37 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. PROFILES / USERS
-CREATE TABLE IF NOT EXISTS public.profiles ( -- Note: Supabase automatically creates a 'public.users' table. This 'profiles' table extends it with app-specific data.
+CREATE TABLE IF NOT EXISTS public.profiles ( -- Note: This 'profiles' table extends Supabase's 'auth.users' table with app-specific data.
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT UNIQUE NOT NULL,
     name TEXT,
     role TEXT DEFAULT 'citizen' CHECK (role IN ('citizen', 'worker', 'supervisor', 'admin')),
     points INTEGER DEFAULT 100,
     avatar_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    status TEXT DEFAULT 'Active' CHECK (status IN ('Active', 'Suspended'))
 );
 
 -- Enable RLS for Profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Profiles Policies
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone."
+DROP POLICY IF EXISTS "Profiles are publicly viewable." ON public.profiles;
+CREATE POLICY "Profiles are publicly viewable."
 ON public.profiles FOR SELECT TO public USING (true);
-
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
-CREATE POLICY "Users can insert their own profile."
-ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
 
 DROP POLICY IF EXISTS "Users can update their own profile." ON public.profiles;
 CREATE POLICY "Users can update their own profile."
 ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
+CREATE POLICY "Admins can update any profile."
+ON public.profiles FOR UPDATE TO authenticated USING (
+    EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+    )
+);
 
 
 -- 2. SMART BINS
@@ -144,10 +150,21 @@ ALTER TABLE public.worker_tasks ADD COLUMN IF NOT EXISTS assigned_worker_id UUID
 ALTER TABLE public.worker_tasks ENABLE ROW LEVEL SECURITY;
 
 -- Worker Tasks Policies
-DROP POLICY IF EXISTS "Workers view their own tasks, supervisors see all" ON public.worker_tasks;
 DROP POLICY IF EXISTS "Worker tasks are viewable by everyone." ON public.worker_tasks;
-CREATE POLICY "Worker tasks are viewable by everyone."
-ON public.worker_tasks FOR SELECT TO public USING (true);
+DROP POLICY IF EXISTS "Workers can view their own tasks, supervisors/admins see all" ON public.worker_tasks;
+CREATE POLICY "Workers can view their own tasks, supervisors/admins see all"
+ON public.worker_tasks FOR SELECT TO authenticated USING (
+    (
+        -- Supervisors and admins can see all tasks
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role IN ('supervisor', 'admin')
+        )
+    ) OR (
+        -- Workers can see tasks assigned to them
+        assigned_worker_id = auth.uid()
+    )
+);
 
 DROP POLICY IF EXISTS "Staff can insert tasks." ON public.worker_tasks;
 CREATE POLICY "Staff can insert tasks."
@@ -283,7 +300,6 @@ ON public.notifications FOR SELECT USING (auth.uid() = user_id);
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path = public; -- Best practice for SECURITY DEFINER functions
     INSERT INTO public.profiles (id, email, name, role, points, avatar_url)
     VALUES (
         new.id,
@@ -297,7 +313,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE OR REPLACE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

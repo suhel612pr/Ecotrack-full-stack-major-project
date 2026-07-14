@@ -57,6 +57,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
         if (data.user) {
           const newProfile: UserProfile = {
+            id: data.user.id,
             email,
             role: 'citizen',
             name: name || email.split('@')[0],
@@ -114,6 +115,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           } else {
             // Fallback to user metadata if profile is not found.
             const fallbackProfile: UserProfile = {
+              id: data.user.id,
               email: data.user.email || '',
               role: 'citizen',
               name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Citizen',

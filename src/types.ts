@@ -75,6 +75,7 @@ export interface WorkerTask {
 }
 
 export interface UserProfile {
+  id: string;
   email: string;
   role: 'citizen' | 'worker' | 'supervisor' | 'admin' | 'superadmin';
   name: string;
@@ -82,6 +83,18 @@ export interface UserProfile {
   address?: string;
   points: number;
   avatarUrl?: string;
+  status?: 'Active' | 'Suspended';
+}
+
+export interface Vehicle {
+  id: string;
+  name: string;
+  model: string;
+  type: string;
+  battery_level: number;
+  lat: number;
+  lng: number;
+  status: string;
 }
 
 export interface WasteAnalysisResponse {
@@ -98,6 +111,7 @@ export interface WasteAnalysisResponse {
 
 export interface AIWasteScan {
   id: string;
+  userId?: string;
   itemName: string;
   category: WasteCategory;
   confidence: number;
@@ -110,4 +124,3 @@ export interface AIWasteScan {
   imageUrl?: string;
   createdAt: string;
 }
-

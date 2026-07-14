@@ -17,14 +17,20 @@ interface CitizenJourneyProps {
 export default function CitizenJourney({ user }: CitizenJourneyProps) {
   const [timeframe, setTimeframe] = useState<'monthly' | 'annual'>('monthly');
 
+  // --- Metric Calculation Constants ---
+  // These multipliers should ideally be managed in a central configuration or fetched from the backend
+  // to ensure consistency across the application (e.g., matching the values in `supabaseService.ts`).
+  const CARBON_KG_PER_POINT = 0.12;
+  const PLASTIC_KG_PER_POINT = 0.04;
+  const RECYCLED_WASTE_KG_PER_POINT = 0.22;
+  const POINTS_PER_TREE_EQUIVALENT = 25;
+
   // Dynamic statistics calculations based on user points
   const points = user.points || 125;
-  const carbonSaved = (points * 0.12).toFixed(1);
-  const treesEquivalent = Math.max(1, Math.round(points / 25));
-  const recyclingRate = 88.5; // percent
-  const sustainabilityScore = 92; // scale of 100
-  const plasticReducedKg = (points * 0.04).toFixed(1);
-  const wasteRecycledKg = (points * 0.22).toFixed(1);
+  const carbonSaved = (points * CARBON_KG_PER_POINT).toFixed(1);
+  const treesEquivalent = Math.max(1, Math.round(points / POINTS_PER_TREE_EQUIVALENT));
+  const plasticReducedKg = (points * PLASTIC_KG_PER_POINT).toFixed(1);
+  const wasteRecycledKg = (points * RECYCLED_WASTE_KG_PER_POINT).toFixed(1);
 
   // Timeframe-based mock trends
   const monthlyData = [
@@ -37,6 +43,10 @@ export default function CitizenJourney({ user }: CitizenJourneyProps) {
     { name: 'Jul', carbon: Number(carbonSaved), waste: Number(wasteRecycledKg), trees: treesEquivalent, plastic: Number(plasticReducedKg) },
   ];
 
+  // --- Demonstrative / Mock Data ---
+  // In a production environment, this data would be fetched from an analytics endpoint.
+  const recyclingRate = 88.5; // percent
+  const sustainabilityScore = 92; // scale of 100
   const annualData = [
     { name: '2021', carbon: 45, waste: 92, trees: 3, plastic: 15 },
     { name: '2022', carbon: 85, waste: 180, trees: 7, plastic: 32 },
@@ -181,7 +191,10 @@ export default function CitizenJourney({ user }: CitizenJourneyProps) {
               <TrendingUp className="h-4.5 w-4.5 mr-1.5 text-emerald-500" />
               Sustainability Trend Metrics
             </h3>
-            <p className="text-xs text-slate-400">Comparing carbon saved vs. total solid waste recycled over active durations.</p>
+            <p className="text-xs text-slate-400">
+              Comparing carbon saved vs. total solid waste recycled over time.
+              <span className="hidden sm:inline italic opacity-70"> (Data is illustrative)</span>
+            </p>
           </div>
 
           {/* Timeframe selector */}

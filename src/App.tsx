@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter } from 'react-router-dom';
 import AuthModal from './components/AuthModal';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Footer from './components/Footer';
-import LandingPage from './pages/LandingPage';
-import CitizenPortal from './pages/CitizenPortal';
-import WorkerPortal from './pages/WorkerPortal';
-import AdminPortal from './pages/AdminPortal';
-import FAQContact from './pages/FAQContact';
-import SmartCityOS from './pages/SmartCityOS';
 import EcoBot from './components/EcoBot';
 import CommandPalette from './components/CommandPalette';
-import { SmartBin, CivicReport, WorkerTask, UserProfile, CitizenTab, WorkerTab, AdminTab } from './types';
+import { UserProfile, CitizenTab, WorkerTab, AdminTab } from './types';
 import { Bell, ShieldAlert, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SupabaseService } from './supabaseService';
 import { getSupabase, isSupabaseActive } from './supabaseClient';
-import SetupErrorPage from './components/SetupErrorPage';
+import AppRouter from './Router';
+import { logError } from './logger';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('home'); // 'home', 'dashboard', 'about', 'privacy', 'terms'
@@ -53,7 +49,7 @@ export default function App() {
               setUser(profile);
             }
           }).catch(err => {
-            console.error('[PROFILE FETCH FAILED] Error fetching session profile on boot:', err);
+            logError('[PROFILE FETCH FAILED] Error fetching session profile on boot:', err);
             setUser(null); // Ensure user is logged out if profile fails
           });
         }
@@ -69,7 +65,7 @@ export default function App() {
               setUser(profile);
             }
           } catch (err) {
-            console.error('[PROFILE FETCH FAILED] Error fetching profile on auth change:', err);
+            logError('[PROFILE FETCH FAILED] Error fetching profile on auth change:', err);
             // If profile fetch fails, treat as logged out to prevent inconsistent state
             setUser(null);
           }
@@ -101,7 +97,7 @@ export default function App() {
           type: 'info'
         });
       } catch (err: any) {
-        console.error('[LOGOUT FAILED] Error signing out:', err);
+        logError('[LOGOUT FAILED] Error signing out:', err);
         addNotification({
           title: 'Sign Out Failed',
           desc: err.message || 'An error occurred during sign out.',
@@ -124,118 +120,9 @@ export default function App() {
     setIsAuthModalOpen(false);
   };
 
-  // Dynamic state syncing with server
-  const [bins, setBins] = useState<SmartBin[]>([]);
-  const [reports, setReports] = useState<CivicReport[]>([]);
-  const [tasks, setTasks] = useState<WorkerTask[]>([]);
-  const [vehicles, setVehicles] = useState<any[]>([]);
-
   // Telemetry notifications
-  const [notifications, setNotifications] = useState<{ id: string; title: string; desc: string; type: 'info' | 'warn' | 'success'; time: string }[]>([
-    { id: 'notif-1', title: 'System Heartbeat Synced', desc: 'IoT Smart Bins on segment V are online.', type: 'success', time: '02:45' },
-    { id: 'notif-2', title: 'Critical Fill Level Warning', desc: 'Smart Bin SB-104 has filled past 90%!', type: 'warn', time: '02:40' }
-  ]);
+  const [notifications, setNotifications] = useState<{ id: string; title: string; desc: string; type: 'info' | 'warn' | 'success'; time: string }[]>([]);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
-  const [schemaMissing, setSchemaMissing] = useState(false);
-
-  // Dynamically derived statistics from the core data state
-  const stats = React.useMemo(() => {
-    const totalBins = bins.length;
-    const criticalBins = bins.filter(b => b.fillLevel >= 85).length;
-    const totalReports = reports.length;
-    const pendingReports = reports.filter(r => r.status === 'pending').length;
-    const activeTasks = tasks.filter(t => t.status !== 'completed').length;
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    // These would be calculated with a more complex model in a real scenario
-    const totalCo2Saved = (completedTasks * 0.5) + (totalReports * 0.1);
-    const treeEquivalent = Math.floor(totalCo2Saved / 50);
-
-    return { totalBins, criticalBins, totalReports, pendingReports, activeTasks, completedTasks, totalCo2Saved, treeEquivalent };
-  }, [bins, reports, tasks]);
-
-  // Synchronize database endpoints periodically
-  const refetchData = async () => {
-    const supabase = getSupabase();
-
-    try {
-      const [binsData, reportsData, tasksData, vehiclesData] = await Promise.all([
-        SupabaseService.getSmartBins(),
-        SupabaseService.getCivicReports(),
-        SupabaseService.getWorkerTasks(),
-        SupabaseService.getVehicles()
-      ]);
-
-      setBins(binsData);
-      setReports(reportsData);
-      setTasks(tasksData);
-      setVehicles(vehiclesData);
-
-      if ((window as any).supabaseSchemaMissing) {
-        setSchemaMissing(true);
-      }
-    } catch (err: any) {
-      console.error('Failed to sync civic telemetry databases.', err);
-      if (err?.message?.includes('relation') || err?.message?.includes('does not exist') || err?.message?.includes('Could not find') || (window as any).supabaseSchemaMissing) {
-        setSchemaMissing(true);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!authReady) return; // <-- Guard clause: Do not fetch data until auth is ready.
-
-    refetchData();
-
-    // Establish Supabase Realtime subscriptions if active
-    const supabase = getSupabase();
-    if (supabase) {
-      const channel = supabase.channel('realtime_civic_telemetry')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'smart_bins' }, (payload) => {
-          setBins(currentBins => [...currentBins, payload.new as SmartBin]);
-        })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'smart_bins' }, (payload) => {
-          setBins(currentBins => currentBins.map(bin => bin.id === payload.new.id ? payload.new as SmartBin : bin));
-        })
-        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'smart_bins' }, (payload) => {
-          setBins(currentBins => currentBins.filter(bin => bin.id !== payload.old.id));
-        })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, (payload) => {
-          setReports(currentReports => [payload.new as CivicReport, ...currentReports]);
-        })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reports' }, (payload) => {
-          setReports(currentReports => currentReports.map(report => report.id === payload.new.id ? payload.new as CivicReport : report));
-        })
-        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, (payload) => {
-          setReports(currentReports => currentReports.filter(report => report.id !== payload.old.id));
-        })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'worker_tasks' }, (payload) => {
-          setTasks(currentTasks => [payload.new as WorkerTask, ...currentTasks]);
-        })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'worker_tasks' }, (payload) => {
-          setTasks(currentTasks => currentTasks.map(task => task.id === payload.new.id ? payload.new as WorkerTask : task));
-        })
-        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'worker_tasks' }, (payload) => {
-          setTasks(currentTasks => currentTasks.filter(task => task.id !== payload.old.id));
-        })
-        // Note: A full implementation would handle all tables and events.
-        // Using a generic refetch for simplicity is okay for demos but not for production performance.
-        // .on('postgres_changes', { event: '*', schema: 'public', table: 'smart_bins' }, () => { refetchData(); })
-        // .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { refetchData(); })
-        // .on('postgres_changes', { event: '*', schema: 'public', table: 'worker_tasks' }, () => { refetchData(); })
-        // .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => { refetchData(); })
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } else {
-      // Local development polling interval
-      const interval = setInterval(() => {
-        refetchData();
-      }, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [authReady]); // <-- Re-run this effect when authReady changes
 
   // Sync dark class on document root
   useEffect(() => {
@@ -271,100 +158,27 @@ export default function App() {
         type: 'success'
       });
     } catch (err) {
-      console.error(err);
+      logError('Failed to load demo mode', err);
     }
   };
 
-  const handleLoadDemoMode = async () => {
+  // This function is now a pure UI concern. Data operations should be in pages/hooks.
+  const handleEarnPoints = async (amount: number) => {
+    if (!user) return;
+    const newPoints = (user.points || 0) + amount;
     try {
-      await SupabaseService.loadDemoMode();
+      await SupabaseService.updateProfile(user.id, { points: newPoints });
+      setUser(prevUser => prevUser ? { ...prevUser, points: newPoints } : null);
       addNotification({
-        title: 'Enterprise Demo Loaded',
-        desc: 'Seeded +10K profiles, 13 smart bins, and 4 dispatch incidents across city bounds.',
-        type: 'success'
+        title: `+${amount} Green Credits!`,
+        desc: `Your contribution has been logged. New balance: ${newPoints}`,
+        type: 'success',
       });
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      logError('Failed to update points:', error);
+      addNotification({ title: 'Error Updating Points', desc: 'Could not save your new point balance.', type: 'warn' });
     }
-  };
-
-  const handleAddReport = async (reportData: Partial<CivicReport>) => {
-    try {
-      await SupabaseService.addReport(reportData);
-      addNotification({
-        title: 'Civic Report Registered',
-        desc: `Report for "${reportData.title}" dispatched successfully.`,
-        type: 'info'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDispatchReport = async (reportId: string, workerId: string, priority: 'low' | 'medium' | 'high') => {
-    try {
-      await SupabaseService.dispatchReport(reportId, workerId, priority);
-      addNotification({
-        title: 'Sanitation Crew Dispatched',
-        desc: `Task for report ${reportId} assigned to team with ${priority} priority.`,
-        type: 'success'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDismissReport = async (reportId: string) => {
-    try {
-      await SupabaseService.dismissReport(reportId);
-      addNotification({
-        title: 'Incident Report Dismissed',
-        desc: `Report ${reportId} dismissed by supervisor.`,
-        type: 'info'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleAddBin = async (binData: any) => {
-    try {
-      await SupabaseService.addBin(binData);
-      addNotification({
-        title: 'Smart Bin Provisioned',
-        desc: `IoT Sensor unit "${binData.name}" calibrated and online in real-time.`,
-        type: 'success'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDeleteBin = async (binId: string) => {
-    try {
-      await SupabaseService.deleteBin(binId);
-      addNotification({
-        title: 'Smart Bin Decommissioned',
-        desc: `IoT Sensor unit ${binId} successfully deleted from grid records.`,
-        type: 'info'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleCompleteTask = async (taskId: string) => {
-    try {
-      await SupabaseService.completeTask(taskId);
-      addNotification({
-        title: 'Collection Stop Completed',
-        desc: `Task cleared and smart bin levels updated to 0% in real-time.`,
-        type: 'success'
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  }
 
   const addNotification = (notif: { title: string; desc: string; type: 'info' | 'warn' | 'success' }) => {
     const time = new Date().toTimeString().substring(0, 5);
@@ -379,24 +193,9 @@ export default function App() {
     setCurrentPage('faq');
   };
 
-  if (isSupabaseActive() && schemaMissing) {
-    return (
-      <SetupErrorPage
-        onRetry={async () => {
-          (window as any).supabaseSchemaMissing = false;
-          setSchemaMissing(false);
-          await refetchData();
-          if ((window as any).supabaseSchemaMissing) {
-            setSchemaMissing(true);
-            throw new Error("Database schema tables are still missing.");
-          }
-        }}
-      />
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-row font-sans transition-colors duration-300">
+    <BrowserRouter>
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-row font-sans transition-colors duration-300">
       
       {/* 1. Global Navigation Sidebar (Only if logged in) */}
       {isLoggedIn && user && (
@@ -427,7 +226,15 @@ export default function App() {
         
         {/* 2. Sticky Top Navigation Bar */}
         <TopBar
-          user={user}
+          user={user ?? {
+            id: 'guest',
+            email: 'guest@ecotrack.ai',
+            role: 'citizen',
+            name: 'Guest',
+            points: 0,
+            avatarUrl: ''
+          }}
+          onRoleChange={() => {}}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode(!darkMode)}
           language={language}
@@ -444,15 +251,6 @@ export default function App() {
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
         />
-
-        {schemaMissing && (
-          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-3 text-center text-xs text-amber-600 dark:text-amber-500 flex items-center justify-center space-x-2 animate-fade-in z-10">
-            <ShieldAlert className="h-4 w-4 shrink-0 animate-pulse text-amber-500" />
-            <span className="text-left max-w-4xl">
-              <strong>Supabase Connected, but Database Schema Missing:</strong> The database tables (like <code>smart_bins</code>) have not been created yet in your Supabase project. We have gracefully fallen back to highly resilient local storage to keep the interface fully functional. Please copy and execute the SQL migration script from <code>supabase/migrations/</code> in your Supabase SQL Editor.
-            </span>
-          </div>
-        )}
 
         {/* Floating telemetry Notifications Center Modal */}
         <AnimatePresence>
@@ -499,99 +297,19 @@ export default function App() {
 
         {/* 3. Main Content Routing Stage */}
         <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentPage + (currentPage === 'dashboard' ? user.role : '')}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.2 }}
-              className="w-full h-full"
-            >
-              {currentPage === 'home' && (
-                <LandingPage
-                  onLaunchPortal={() => setCurrentPage('dashboard')}
-                  onNavigate={navigateToFAQ}
-                />
-              )}
-
-              {currentPage === 'dashboard' && isLoggedIn && user && (
-                <div className="space-y-6 text-left">
-                  
-                  {/* Elegant low-profile heading for active context */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200/30 dark:border-zinc-800/40 pb-4">
-                    <div>
-                      <h1 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50 font-sans">
-                        {user.role === 'citizen' && "Citizen Workspace"}
-                        {user.role === 'worker' && "Crew Stop Sheet"}
-                        {user.role === 'supervisor' && "Dispatch Hub"}
-                        {user.role === 'admin' && "Municipal Command OS"}
-                      </h1>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Logged in as {user.name} • Active {user.role} viewport.
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-1.5 bg-zinc-100/40 dark:bg-zinc-900/40 px-2.5 py-1 rounded-lg border border-zinc-200/20 dark:border-zinc-800/40 shrink-0 self-start sm:self-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      <span className="text-[9px] font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-                        SYS LIVE
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Render appropriate dashboards dynamically */}
-                  {user.role === 'citizen' && (
-                    <CitizenPortal
-                      user={user} 
-                      bins={bins} 
-                      reports={reports}
-                      onEarnPoints={handleEarnPoints}
-                      onAddReport={handleAddReport}
-                      activeTab={citizenTab}
-                      onTabChange={(tab) => setCitizenTab(tab)}
-                    />
-                  )}
-
-                  {user.role === 'worker' && (
-                    <WorkerPortal
-                      tasks={tasks}
-                      onCompleteTask={handleCompleteTask}
-                      bins={bins}
-                      activeTab={workerTab}
-                      onTabChange={(tab) => setWorkerTab(tab)}
-                    />
-                  )}
-
-                  {(user.role === 'supervisor' || user.role === 'admin' || user.role === 'superadmin') && (
-                    <AdminPortal
-                      bins={bins}
-                      reports={reports}
-                      tasks={tasks}
-                      onDispatchReport={handleDispatchReport}
-                      onDismissReport={handleDismissReport}
-                      onAddBin={handleAddBin}
-                      onDeleteBin={handleDeleteBin}
-                      activeSubTab={adminTab}
-                      onSubTabChange={(tab) => setAdminTab(tab)}
-                    />
-                  )}
-
-                </div>
-              )}
-
-              {currentPage === 'smartcity' && <SmartCityOS />}
-
-              {currentPage === 'faq' && <FAQContact initialView={faqInitialView} />}
-              
-              {currentPage === 'about' && <FAQContact initialView="about" />}
-              {currentPage === 'privacy' && <FAQContact initialView="privacy" />}
-              {currentPage === 'terms' && <FAQContact initialView="terms" />}
-            </motion.div>
-          </AnimatePresence>
+          <AppRouter 
+            user={user} 
+            addNotification={addNotification} 
+            handleEarnPoints={handleEarnPoints}
+            citizenTab={citizenTab} setCitizenTab={setCitizenTab}
+            workerTab={workerTab} setWorkerTab={setWorkerTab}
+            adminTab={adminTab} setAdminTab={setAdminTab}
+            faqInitialView={faqInitialView}
+          />
         </main>
 
         {/* 4. Global Footer */}
-        <Footer onNavigate={navigateToFAQ} />
+        <Footer onNavigate={(page) => navigateToFAQ(page as 'faq' | 'about' | 'privacy' | 'terms')} />
 
       </div>
 
@@ -603,7 +321,7 @@ export default function App() {
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onNavigate={(page, role) => {
-          setCurrentPage(page);
+          // This will now be handled by react-router-dom's <Navigate /> or navigate()
         }}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
         isDarkMode={darkMode}
@@ -618,6 +336,7 @@ export default function App() {
         onAuthSuccess={handleAuthSuccess}
       />
 
-    </div>
+      </div>
+    </BrowserRouter>
   );
 }
